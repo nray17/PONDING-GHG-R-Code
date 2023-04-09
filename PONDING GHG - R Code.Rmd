@@ -1,0 +1,1725 @@
+---
+title: "PONDING C - Full Dataset Analysis"
+author: "Nicholas Ray"
+date: "9/3/2021"
+output: html_document
+---
+
+Download the dataset here: https://figshare.com/articles/dataset/Dataset_for_Spatial_and_temporal_variability_in_greenhouse_gas_partial_pressures_in_shallow_lakes_and_ponds/19495121 
+```{r}
+#####load the datasets
+#first the pond metadata sheet
+#be sure to identify NA values as "NA"
+library(readxl)
+metadata_ponding_var <- read_excel("ponding_ghg_figshare.xlsx", 
+    sheet = "pond_variables", na = "NA")
+View(metadata_ponding_var)
+
+#then the dataset of gas samples
+library(readxl)
+gas_dat <- read_excel("ponding_ghg_figshare.xlsx", 
+    sheet = "dissolved_gases", na = "NA")
+View(gas_dat)
+
+##negative gas concentrations --> force everything below zero to zero
+library(tidyr)
+library(dplyr)
+
+min(na.omit(gas_dat$pco2_uatm))  #-43.04
+gas_dat = gas_dat %>% mutate(pco2_uatm = if_else(pco2_uatm < 0, 0, pco2_uatm))
+min(na.omit(gas_dat$pco2_uatm))
+
+min(na.omit(gas_dat$pch4_uatm))  #all positive
+```
+
+Get the data into a good format
+```{r}
+#take the mean of the two center samples
+centerdata = subset(gas_dat, samp_loc_in_pond == "center")
+
+library(tidyr)
+library(dplyr)
+centerdata1 <- centerdata %>%
+  group_by(date, pond, samp_round) %>%
+  summarise(pco2_uatm = mean(pco2_uatm, na.rm = TRUE),
+            pch4_uatm = mean(pch4_uatm, na.rm = TRUE))
+head(centerdata1)
+
+#add in a coumn to identify center as location in pond
+centerdata1$samp_loc_in_pond = "center"
+
+#shrink down the other dataset for just the data needed:
+not_center = subset(gas_dat, samp_loc_in_pond != "center")
+
+new_gas_dat = rbind(centerdata1, not_center)
+
+#remove the pco2 and pch4 concentration columns (only co2_umoll, ch4_umoll)
+new_gas_dat = subset(new_gas_dat, select = -c(co2_umoll, ch4_umoll) )
+
+#ok, so now need to squish things down by date
+new_gas_means = new_gas_dat %>%
+  group_by(date,pond, samp_round) %>%
+  summarise(pco2_mean = mean(pco2_uatm, na.rm = TRUE),
+            pch4_mean = mean(pch4_uatm, na.rm = TRUE),
+            pco2_sd = sd(pco2_uatm, na.rm = TRUE),
+            pch4_sd = sd(pch4_uatm, na.rm = TRUE),
+            pco2_range = (max(pco2_uatm)-min(pco2_uatm)),
+            pch4_range = (max(pch4_uatm)-min(pch4_uatm)))
+new_gas_means
+###looks good...
+
+#add in Julian Day
+library(lubridate)
+new_gas_means$date = as.Date(new_gas_means$date, format = c("%Y %m %d"))
+new_gas_means$julian = as.numeric(format(new_gas_means$date, "%j"))
+
+#make pond name column match
+metadata_ponding_var <- rename(metadata_ponding_var, pond = `Pond Name`)
+
+#make sure it knows we are using dates
+new_gas_means$date <- as.Date(new_gas_means$date)
+
+all_dat = merge(metadata_ponding_var, new_gas_means, by = c ("pond"))
+all_dat
+
+#and make columns of residuals (SD ~ mean)
+#get rid of sites with no spatial sampling
+space_dat = subset(all_dat, pco2_sd != "NA")
+space_dat$co2_res = residuals(na.omit(lm(log10(space_dat$pco2_sd + 1) ~ log10(space_dat$pco2_mean + 1))))
+space_dat$co2_res
+
+space_dat$ch4_res = residuals(na.omit(lm(log10(space_dat$pch4_sd) ~ log10(space_dat$pch4_mean))))
+space_dat$ch4_res
+```
+
+Manuscript Fig. 2: Stacked GHG Plot Figure
+```{r}
+mean_round1 = subset(all_dat, samp_round == "a")
+mean_round2 = subset(all_dat, samp_round == "b")
+mean_round3 = subset(all_dat, samp_round == "c")
+
+require(scales)
+library(ggplot2)
+co2_pond_date_plot = ggplot()+
+  annotate("rect", xmin = 0.5, xmax = 1.5, ymin = 0, ymax = 30000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 2.5, xmax = 3.5, ymin = 0, ymax = 30000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 4.5, xmax = 5.5, ymin = 0, ymax = 30000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 6.5, xmax = 7.5, ymin = 0, ymax = 30000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 8.5, xmax = 9.5, ymin = 0, ymax = 30000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 10.5, xmax = 11.5, ymin = 0, ymax = 30000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 12.5, xmax = 13.5, ymin = 0, ymax = 30000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 14.5, xmax = 15.5, ymin = 0, ymax = 30000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 16.5, xmax = 17.5, ymin = 0, ymax = 30000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 18.5, xmax = 19.5, ymin = 0, ymax = 30000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 20.5, xmax = 21.5, ymin = 0, ymax = 30000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 22.5, xmax = 23.5, ymin = 0, ymax = 30000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 24.5, xmax = 25.5, ymin = 0, ymax = 30000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 26.5, xmax = 27.5, ymin = 0, ymax = 30000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 28.5, xmax = 29.5, ymin = 0, ymax = 30000, alpha = .1,fill = "gray0")+
+  geom_errorbar(data = mean_round1, aes(x = pond, y = pco2_mean, fill = date, ymin = pco2_mean - pco2_sd, ymax = pco2_mean + pco2_sd), 
+                position = position_nudge(x = -0.2), width = 0)+
+  geom_errorbar(data = mean_round2, aes(x = pond, y = pco2_mean, fill = date, ymin = pco2_mean - pco2_sd, ymax = pco2_mean + pco2_sd), 
+                position = position_nudge(x = 0), width = 0)+
+  geom_errorbar(data = mean_round3, aes(x = pond, y = pco2_mean, fill = date, ymin = pco2_mean - pco2_sd, ymax = pco2_mean + pco2_sd), 
+                position = position_nudge(x = 0.2), width = 0)+
+  geom_point(data = mean_round1, aes(x = pond, y = pco2_mean, fill = date), color = "#1b9e77", size = 3, shape = 16, position = position_nudge(x = -0.2))+
+  geom_point(data = mean_round1, aes(x = pond, y = pco2_mean, fill = date), size = 3, shape = 1, lwd = 2, position = position_nudge(x = -0.2))+
+  geom_point(data = mean_round2, aes(x = pond, y = pco2_mean, fill = date), color = "#1b9e77", size = 3, shape = 16, position = position_nudge(x = 0))+
+  geom_point(data = mean_round2, aes(x = pond, y = pco2_mean, fill = date), size = 3, shape = 1, lwd = 2, position = position_nudge(x = 0))+
+  geom_point(data = mean_round3, aes(x = pond, y = pco2_mean, fill = date), color = "#1b9e77", size = 3, shape = 16, position = position_nudge(x = 0.2))+
+  geom_point(data = mean_round3, aes(x = pond, y = pco2_mean, fill = date), size = 3, shape = 1, lwd = 2, position = position_nudge(x = 0.2))+
+  theme_classic()+
+  theme(legend.position="none")+
+  scale_y_continuous(trans = 'log10', labels = comma, limits = c(NA, 30000))+
+  geom_hline(yintercept = 0)+
+  geom_hline(yintercept = 446, linetype = "dashed")+
+  scale_x_discrete()+
+  theme(axis.text.x =  element_blank(),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_text(size = 8, colour = "black"),
+         axis.title.x = element_blank())+
+  labs(y = expression(paste(italic("p"),"CO"[2]*" (",mu,"atm)")))
+co2_pond_date_plot
+
+ch4_pond_date_plot = ggplot()+
+  annotate("rect", xmin = 0.5, xmax = 1.5, ymin = 0, ymax = 130000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 2.5, xmax = 3.5, ymin = 0, ymax = 130000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 4.5, xmax = 5.5, ymin = 0, ymax = 130000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 6.5, xmax = 7.5, ymin = 0, ymax = 130000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 8.5, xmax = 9.5, ymin = 0, ymax = 130000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 10.5, xmax = 11.5, ymin = 0, ymax = 130000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 12.5, xmax = 13.5, ymin = 0, ymax = 130000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 14.5, xmax = 15.5, ymin = 0, ymax = 130000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 16.5, xmax = 17.5, ymin = 0, ymax = 130000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 18.5, xmax = 19.5, ymin = 0, ymax = 130000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 20.5, xmax = 21.5, ymin = 0, ymax = 130000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 22.5, xmax = 23.5, ymin = 0, ymax = 130000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 24.5, xmax = 25.5, ymin = 0, ymax = 130000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 26.5, xmax = 27.5, ymin = 0, ymax = 130000, alpha = .1,fill = "gray0")+
+  annotate("rect", xmin = 28.5, xmax = 29.5, ymin = 0, ymax = 130000, alpha = .1,fill = "gray0")+
+  geom_errorbar(data = mean_round1, aes(x = pond, y = pch4_mean, fill = date, ymin = pch4_mean - pch4_sd, ymax = pch4_mean + pch4_sd), 
+                position = position_nudge(x = -0.2), width = 0)+
+  geom_errorbar(data = mean_round2, aes(x = pond, y = pch4_mean, fill = date, ymin = pch4_mean - pch4_sd, ymax = pch4_mean + pch4_sd), 
+                position = position_nudge(x = 0), width = 0)+
+  geom_errorbar(data = mean_round3, aes(x = pond, y = pch4_mean, fill = date, ymin = pch4_mean - pch4_sd, ymax = pch4_mean + pch4_sd), 
+                position = position_nudge(x = 0.2), width = 0)+
+  geom_point(data = mean_round1, aes(x = pond, y = pch4_mean, fill = date), color = "#d95f02", size = 3, shape = 16, position = position_nudge(x = -0.2))+
+  geom_point(data = mean_round1, aes(x = pond, y = pch4_mean, fill = date), size = 3, shape = 1, lwd = 2, position = position_nudge(x = -0.2))+
+  geom_point(data = mean_round2, aes(x = pond, y = pch4_mean, fill = date), color = "#d95f02", size = 3, shape = 16, position = position_nudge(x = 0))+
+  geom_point(data = mean_round2, aes(x = pond, y = pch4_mean, fill = date), size = 3, shape = 1, lwd = 2, position = position_nudge(x = 0))+
+  geom_point(data = mean_round3, aes(x = pond, y = pch4_mean, fill = date), color = "#d95f02", size = 3, shape = 16, position = position_nudge(x = 0.2))+
+  geom_point(data = mean_round3, aes(x = pond, y = pch4_mean, fill = date), size = 3, shape = 1, lwd = 2, position = position_nudge(x = 0.2))+
+  theme_classic()+
+  theme(legend.position="none")+
+  labs(y = expression(paste(italic("p"),"CH"[4]*" (",mu,"atm)")))+
+  scale_y_continuous(trans = 'log10', labels = comma, limits = c(NA, 130000))+
+  geom_hline(yintercept = 0)+
+  geom_hline(yintercept = 2.4, linetype = "dashed")+
+  scale_x_discrete()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 0.5, size = 8, colour = "black"),
+        axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_text(size = 8, colour = "black"),
+         axis.title.x = element_blank())
+ch4_pond_date_plot
+
+library(patchwork)
+pond_ghg_plot = co2_pond_date_plot + ch4_pond_date_plot +
+  plot_layout(ncol = 1, nrow = 2)+
+  plot_annotation(tag_levels = "A")
+pond_ghg_plot
+
+ggsave(filename="pond_ghg_fig.png", plot=pond_ghg_plot, width = 190, height = 150, units = "mm")
+```
+
+Supplemental Fig: Biplot of mean pCO2 and pCH4 per pond. Use mean of all dates
+```{r}
+library(tidyr)
+biplot_dat = all_dat %>%
+  group_by(pond) %>%
+  summarise(big_pco2_mean = mean(pco2_mean, na.rm = TRUE),
+            big_pch4_mean = mean(pch4_mean, na.rm = TRUE),
+            big_pco2_sd = sd(pco2_mean, na.rm = TRUE),
+            big_pch4_sd = sd(pch4_mean, na.rm = TRUE),
+            big_pco2_range = (max(pco2_mean)-min(pco2_mean)),
+            big_pch4_range = (max(pch4_mean)-min(pch4_mean)))
+biplot_dat
+
+##now, make a biplot of pco2 and pch4, using grand mean and sd
+plot(biplot_dat$big_pch4_mean ~ biplot_dat$big_pco2_mean)
+
+summary(lm(log10(biplot_dat$big_pch4_mean) ~ (biplot_dat$big_pco2_mean)))
+summary(lm((biplot_dat$big_pch4_mean) ~ (biplot_dat$big_pco2_mean)))
+
+max(biplot_dat$big_pco2_mean)
+max(biplot_dat$big_pch4_mean)
+
+require(scales)
+
+ghg_bi_plot = ggplot(biplot_dat, aes(x = big_pco2_mean, y = big_pch4_mean))+
+  geom_smooth(method = "lm", fullrange = TRUE, se = TRUE, colour = "black")+
+  #geom_errorbar(aes(ymin = big_pch4_mean - big_pch4_sd, ymax = big_pch4_mean + big_pch4_sd), width = 0)+
+  #geom_errorbar(aes(xmin = big_pco2_mean - big_pco2_sd, xmax = big_pco2_mean + big_pco2_sd), width = 0)+
+  geom_point(color = "#7570b3", size = 3, shape = 16)+
+  geom_point(size = 3, shape = 1, lwd = 2)+
+  theme_classic()+
+  labs(x = expression(paste("Mean ",italic("p"),"CO"[2]*" (",mu,"atm)")),
+       y = expression(paste("Mean ",italic("p"),"CH"[4]*" (",mu,"atm)")))+
+  theme(axis.text.x =  element_text(size = 10,colour = "black"),
+         axis.text.y =  element_text(size = 10,colour = "black"),
+         axis.title.y = element_text(size = 10, colour = "black"),
+         axis.title.x = element_text(size = 10, colour = "black"))+
+  scale_y_continuous(trans = 'log10', labels = comma, breaks = c(1, 10, 100, 1000, 10000, 100000))+
+  scale_x_continuous( labels = comma, limits = c(0, 13000), breaks = c(0, 2500, 5000, 7500, 10000, 12500))+
+  annotate('text', label = "paste(italic(r)^2, \" = 0.36  p < 0.001\")", parse = TRUE, x = 0, y = 30000, size = 3.528, hjust = 0)+
+  annotate("text", label = expression(paste("log(y) = 0.0001x + 3.04")), parse = TRUE, x = 0, y = 20000, size = 3.528, hjust = 0)
+
+ghg_bi_plot
+
+ggsave(filename="ghg_biplot_fig.png", plot=ghg_bi_plot, width = 95, height = 95, units = "mm")
+```
+
+Look at distributions of predictor variables:
+```{r}
+library(fitdistrplus)
+
+#surface area first
+x = as.vector(na.omit(metadata_ponding_var$`Surface Area (m2)`))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+#log
+
+#latitude
+x = as.vector(na.omit(metadata_ponding_var$latitude))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+#log
+
+# perimeter
+x = as.vector(na.omit(metadata_ponding_var$`Perimeter (m)`))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+#log
+
+## fetch
+x = as.vector(na.omit(metadata_ponding_var$`Fetch (m)`))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+#log
+
+#depth
+x = as.vector(na.omit(metadata_ponding_var$`Max Depth (m)`))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+#log
+
+#DOC
+x = as.vector(na.omit(metadata_ponding_var$`DOC (mg/L)`))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+#log
+
+#total P
+x = as.vector(na.omit(metadata_ponding_var$`TP (ug/L)`))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+#log
+
+#dissolved P
+x = as.vector(na.omit(metadata_ponding_var$`TDP (ug/L)`))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+#log
+
+#chl-a
+x = as.vector(na.omit(metadata_ponding_var$`Chlorophyll a (ug/L)`))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+#log
+
+#conductivity
+x = as.vector(na.omit(metadata_ponding_var$`Conductivity (us/cm)`))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+#log
+
+#pH
+x = as.vector(na.omit(metadata_ponding_var$pH))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+
+#Secchi
+x = as.vector(na.omit(metadata_ponding_var$`SecchiDepth (m)`))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+
+#%emergent
+x = as.vector(na.omit(metadata_ponding_var$`% emergent cover` + 1))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+
+#%submerged
+x = as.vector(na.omit(metadata_ponding_var$`% submerged cover` + 1))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+
+#%floating
+x = as.vector(na.omit(metadata_ponding_var$`% floating cover` + 1))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+
+#space between sampling dates
+#load new dataset
+library(readxl)
+days_between_ponding <- read_excel("days_between - ponding.xlsx")
+View(days_between_ponding)
+
+x = as.vector(na.omit(days_between_ponding$days_first_to_last))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+
+```
+
+Find all the correlations between predictor variables:
+```{r}
+#use the metadata_ponding_var dataset
+#pick the columns to use (get rid of non-numeric)
+cor_dat = subset(metadata_ponding_var, select = -c(`Researcher Name`, pond, `State / Country`, longitude, 
+                                                   Years_Data_Collected, Years_Data_Collected, Fetch_notes,
+                                                   study_year, `Inflows (Y/N)`, `Outflows (Y/N)`,
+                                                   `Residence time available? Y/N`, `Pond_permanent? (Permanent/Temporary)`,
+                                                   `Mean depth (m)`, `Max volume (m3)`, `Bathymetry available? (Y/N)`,
+                                                   TSS, `Anoxic benthos (Y/N)`, `Sediment organic matter (% LOI)`, `Fish (Present/Absent)`, `% canopy cover over pond`))
+#and now get rid of the extra columns (18 thru 28)
+cor_dat = cor_dat[-c(18:24)]
+
+#make the needed log transforms
+cor_dat$log_area = log10(cor_dat$`Surface Area (m2)`)
+cor_dat$log_perim = log10(cor_dat$`Perimeter (m)`)
+cor_dat$log_fetch = log10(cor_dat$`Fetch (m)`)
+cor_dat$log_depth = log10(cor_dat$`Max Depth (m)`)
+cor_dat$log_doc = log10(cor_dat$`DOC (mg/L)`)
+cor_dat$log_dissolved_p = log10(cor_dat$`TDP (ug/L)`)
+cor_dat$log_chla = log10(cor_dat$`Chlorophyll a (ug/L)`)
+cor_dat$log_conduct = log10(cor_dat$`Conductivity (us/cm)`)
+cor_dat$log_lat = log10(cor_dat$latitude)
+cor_dat$log_totalP = log10(cor_dat$`TP (ug/L)`)
+#and remove the normal version of these
+cor_dat = subset(cor_dat, select = -c(`Surface Area (m2)`, `Perimeter (m)`, `Fetch (m)`,
+                                      `Max Depth (m)`, `DOC (mg/L)`, `TDP (ug/L)`,
+                                      `Chlorophyll a (ug/L)`, `Conductivity (us/cm)`, latitude, `TP (ug/L)` ))
+
+
+library(Hmisc)
+mydata.rcorr = rcorr(as.matrix(cor_dat))
+mydata.rcorr
+mydata.coeff = mydata.rcorr$r
+mydata.p = mydata.rcorr$P
+
+require(scales)
+mydata.coeff
+require(scales)
+mydata.p
+```
+
+Ok, lets see if we can predict gas concentrations. Do our predictions match with past reports?
+```{r}
+biplot_dat = merge(metadata_ponding_var, biplot_dat, by = c ("pond"))
+biplot_dat
+
+#what is distribution of pCO2 and pCH4
+x = as.vector(na.omit(biplot_dat$big_pco2_mean))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+#normal
+
+x = as.vector(na.omit(biplot_dat$big_pch4_mean))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+#log normal
+
+
+#look at variables as predictors of grand mean of CO2
+summary(lm(biplot_dat$big_pco2_mean ~ log10(biplot_dat$latitude)))
+plot(biplot_dat$big_pco2_mean ~ biplot_dat$latitude)
+
+summary(lm(biplot_dat$big_pco2_mean ~ log10(biplot_dat$`Surface Area (m2)`)))
+plot(biplot_dat$big_pco2_mean ~ log10(biplot_dat$`Surface Area (m2)`))
+
+summary(lm(biplot_dat$big_pco2_mean ~ log10(biplot_dat$`Perimeter (m)`)))
+plot(biplot_dat$big_pco2_mean ~ log10(biplot_dat$`Perimeter (m)`))
+
+summary(lm(biplot_dat$big_pco2_mean ~ log10(biplot_dat$`Fetch (m)`)))
+plot(biplot_dat$big_pco2_mean ~ log10(biplot_dat$`Fetch (m)`))
+
+summary(lm(biplot_dat$big_pco2_mean ~ log10(biplot_dat$`Max Depth (m)`)))
+plot(biplot_dat$big_pco2_mean ~ biplot_dat$`Max Depth (m)`)
+
+summary(lm(biplot_dat$big_pco2_mean ~ log10(biplot_dat$`DOC (mg/L)`)))
+plot(biplot_dat$big_pco2_mean ~ biplot_dat$`DOC (mg/L)`)
+
+summary(lm(biplot_dat$big_pco2_mean ~ log10(biplot_dat$`TP (ug/L)`)))
+plot(biplot_dat$big_pco2_mean ~ log10(biplot_dat$`TP (ug/L)`))
+
+summary(lm(biplot_dat$big_pco2_mean ~ log10(biplot_dat$`TDP (ug/L)`)))
+plot(biplot_dat$big_pco2_mean ~ biplot_dat$`TDP (ug/L)`)
+
+summary(lm(biplot_dat$big_pco2_mean ~ log10(biplot_dat$`Chlorophyll a (ug/L)`)))
+plot(biplot_dat$big_pco2_mean ~ log10(biplot_dat$`Chlorophyll a (ug/L)`))
+
+summary(lm(biplot_dat$big_pco2_mean ~ log10(biplot_dat$`Conductivity (us/cm)`)))
+plot(biplot_dat$big_pco2_mean ~ biplot_dat$`Conductivity (us/cm)`)
+
+summary(lm(biplot_dat$big_pco2_mean ~ (biplot_dat$`% emergent cover`)))
+plot(biplot_dat$big_pco2_mean ~ (biplot_dat$`% emergent cover`))
+
+summary(lm(biplot_dat$big_pco2_mean ~ (biplot_dat$`% submerged cover`)))
+plot(biplot_dat$big_pco2_mean ~ (biplot_dat$`% submerged cover`))
+
+summary(lm(biplot_dat$big_pco2_mean ~ (biplot_dat$`% floating cover`)))
+plot(biplot_dat$big_pco2_mean ~ (biplot_dat$`% floating cover`))
+
+summary(lm(biplot_dat$big_pco2_mean ~ (biplot_dat$`% canopy cover`)))
+plot(biplot_dat$big_pco2_mean ~ (biplot_dat$`% canopy cover`))
+
+summary(lm(biplot_dat$big_pco2_mean ~ (biplot_dat$pH)))
+plot(biplot_dat$big_pco2_mean ~ (biplot_dat$pH))
+
+summary(lm(biplot_dat$big_pco2_mean ~ (biplot_dat$`Fish (Present/Absent)`)))
+boxplot(biplot_dat$big_pco2_mean ~ biplot_dat$`Fish (Present/Absent)`)
+
+t.test(biplot_dat$big_pco2_mean ~ biplot_dat$`Fish (Present/Absent)`, var.equal = TRUE)
+
+#look at variables as predictors of grand mean of ch4
+summary(lm(log10(biplot_dat$big_pch4_mean) ~ log10(biplot_dat$latitude)))
+plot(biplot_dat$big_pco2_mean ~ biplot_dat$latitude)
+
+summary(lm(log10(biplot_dat$big_pch4_mean) ~ log10(biplot_dat$`Surface Area (m2)`)))
+plot(biplot_dat$big_pch4_mean ~ log10(biplot_dat$`Surface Area (m2)`))
+
+summary(lm(log10(biplot_dat$big_pch4_mean) ~ log10(biplot_dat$`Perimeter (m)`)))
+plot(biplot_dat$big_pch4_mean ~ (biplot_dat$`Perimeter (m)`))
+
+summary(lm(log10(biplot_dat$big_pch4_mean) ~ log10(biplot_dat$`Fetch (m)`)))
+plot(biplot_dat$big_pch4_mean ~ (biplot_dat$`Fetch (m)`))
+
+summary(lm(log10(biplot_dat$big_pch4_mean) ~ log10(biplot_dat$`Max Depth (m)`)))
+plot(biplot_dat$big_pch4_mean ~ biplot_dat$`Max Depth (m)`)
+
+summary(lm(log10(biplot_dat$big_pch4_mean) ~ log10(biplot_dat$`DOC (mg/L)`)))
+plot(biplot_dat$big_pch4_mean ~ biplot_dat$`DOC (mg/L)`)
+
+summary(lm(log10(biplot_dat$big_pch4_mean) ~ log10(biplot_dat$`TP (ug/L)`)))
+plot(biplot_dat$big_pch4_mean ~ (biplot_dat$`TP (ug/L)`))
+
+summary(lm(log10(biplot_dat$big_pch4_mean) ~ log10(biplot_dat$`TDP (ug/L)`)))
+plot(biplot_dat$big_pch4_mean ~ biplot_dat$`TDP (ug/L)`)
+
+summary(lm(log10(biplot_dat$big_pch4_mean) ~ log10(biplot_dat$`Chlorophyll a (ug/L)`)))
+plot(biplot_dat$big_pch4_mean ~ log10(biplot_dat$`Chlorophyll a (ug/L)`))
+
+summary(lm(log10(biplot_dat$big_pch4_mean) ~ log10(biplot_dat$`Conductivity (us/cm)`)))
+plot(biplot_dat$big_pch4_mean ~ log10(biplot_dat$`Conductivity (us/cm)`))
+
+summary(lm(log10(biplot_dat$big_pch4_mean) ~ (biplot_dat$`% emergent cover`)))
+plot(biplot_dat$big_pch4_mean ~ (biplot_dat$`% emergent cover`))
+
+summary(lm(log10(biplot_dat$big_pch4_mean) ~ (biplot_dat$`% submerged cover`)))
+plot(biplot_dat$big_pch4_mean ~ (biplot_dat$`% submerged cover`))
+
+summary(lm(log10(biplot_dat$big_pch4_mean) ~ (biplot_dat$`% floating cover`)))
+plot(biplot_dat$big_pch4_mean ~ (biplot_dat$`% floating cover`))
+
+summary(lm(log10(biplot_dat$big_pch4_mean) ~ (biplot_dat$`% canopy cover`)))
+plot(biplot_dat$big_pch4_mean ~ (biplot_dat$`% canopy cover`))
+
+summary(lm(log10(biplot_dat$big_pch4_mean) ~ (biplot_dat$pH)))
+plot(biplot_dat$big_pch4_mean ~ (biplot_dat$pH))
+
+summary(lm(log10(biplot_dat$big_pch4_mean) ~ (biplot_dat$`Fish (Present/Absent)`)))
+boxplot(biplot_dat$big_pch4_mean ~ biplot_dat$`Fish (Present/Absent)`)
+
+t.test(biplot_dat$big_pch4_mean ~ biplot_dat$`Fish (Present/Absent)`, var.equal = TRUE)
+
+
+#combine surface area and max depth
+summary(lm(log10(biplot_dat$big_pch4_mean) ~ log10(biplot_dat$`Max Depth (m)`) + log10(biplot_dat$`Surface Area (m2)`)))
+```
+
+Make all of the graphs for relationship between pGHG and predictor variables:
+```{r}
+library(ggplot2)
+library(ggtext)
+require(scales)
+
+#use the "biplot_dat" dataset
+biplot_dat = merge(metadata_ponding_var, biplot_dat, by = c ("pond"))
+biplot_dat
+
+#co2 first
+co2_area_plot = ggplot(biplot_dat, aes(x = `Surface Area (m2)`, y = big_pco2_mean))+
+  geom_point(color = "#1b9e77", size = 3, shape = 16)+
+  geom_point(size = 3, shape = 1, lwd = 2)+
+  theme_classic()+
+  theme(legend.position="none")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_text(size = 8, colour = "black"),
+         axis.title.x = element_text(size = 8,colour = "black"))+
+  labs(y = expression(paste("Mean ",italic("p"),"CO"[2]*" (",mu,"atm)")))+
+  labs(x = expression(paste("Surface Area (m"^2*")")))+
+  geom_smooth(method = "lm", se = TRUE, color = "black", fullrange = TRUE)+
+  scale_y_continuous(breaks = c(0, 5000, 10000, 15000))+
+  scale_x_continuous(trans = 'log10', labels = comma, breaks = c(1000, 10000, 1000000))+
+  annotate("text", x = 1000, y = 15000, label = expression(paste("p = 0.01   ", italic("r"^2)," = 0.25")), size = 2.822, hjust = 0)+
+  annotate("text", x = 1000, y = 13700, label = "y = -1969*log(x) + 10826", size = 2.822, hjust = 0)
+co2_area_plot
+
+max(biplot_dat$`Perimeter (m)`)
+co2_perim_plot = ggplot(biplot_dat, aes(x = `Perimeter (m)`, y = big_pco2_mean))+
+  geom_point(color = "#1b9e77", size = 3, shape = 16)+
+  geom_point(size = 3, shape = 1, lwd = 2)+
+  theme_classic()+
+  theme(legend.position="none")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_text(size = 8, colour = "black"),
+         axis.title.x = element_text(size = 8,colour = "black"))+
+  labs(y = expression(paste("Mean ",italic("p"),"CO"[2]*" (",mu,"atm)")))+
+  labs(x = expression(paste("Perimeter (m)")))+
+  scale_y_continuous(breaks = c(0, 5000, 10000, 15000))+
+  scale_x_continuous(trans = 'log10', labels = comma)+
+  geom_smooth(method = "lm", se = TRUE, color = "black", fullrange = TRUE)+
+  annotate("text", x = 100, y = 15000, label = expression(paste("p = 0.02   ", italic("r"^2)," = 0.19")), size = 2.822, hjust = 0)+
+  annotate("text", x = 100, y = 13700, label = "y = -3500*log(x) + 12297", size = 2.822, hjust = 0)
+co2_perim_plot
+
+max(biplot_dat$`Fetch (m)`)
+co2_fetch_plot = ggplot(biplot_dat, aes(x = `Fetch (m)`, y = big_pco2_mean))+
+  geom_point(color = "#1b9e77", size = 3, shape = 16)+
+  geom_point(size = 3, shape = 1, lwd = 2)+
+  theme_classic()+
+  theme(legend.position="none")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_text(size = 8, colour = "black"),
+         axis.title.x = element_text(size = 8,colour = "black"))+
+  labs(y = expression(paste("Mean ",italic("p"),"CO"[2]*" (",mu,"atm)")))+
+  labs(x = expression(paste("Fetch (m)")))+
+  scale_y_continuous(breaks = c(0, 5000, 10000, 15000))+
+  scale_x_continuous(trans = 'log10', labels = comma)+
+  geom_smooth(method = "lm", se = TRUE, color = "black", fullrange = TRUE)+
+  annotate("text", x = 10, y = 15000, label = expression(paste("p < 0.01   ", italic("r"^2)," = 0.29")), size = 2.822, hjust = 0)+
+  annotate("text", x = 10, y = 13700, label = "y = -4071*log(x) + 12176", size = 2.822, hjust = 0)
+co2_fetch_plot
+
+
+max(biplot_dat$`TDP (ug/L)`)
+co2_dissP_plot = ggplot(biplot_dat, aes(x = `TDP (ug/L)`, y = big_pco2_mean))+
+  geom_point(color = "#1b9e77", size = 3, shape = 16)+
+  geom_point(size = 3, shape = 1, lwd = 2)+
+  theme_classic()+
+  theme(legend.position="none")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_text(size = 8, colour = "black"),
+         axis.title.x = element_text(size = 8,colour = "black"))+
+  labs(y = expression(paste("Mean ",italic("p"),"CO"[2]*" (",mu,"atm)")))+
+  labs(x = expression(paste("Dissolved P (",mu,"g L"^-1*")")))+
+  scale_y_continuous(breaks = c(0, 5000, 10000, 15000))+
+  scale_x_continuous(trans = 'log10', labels = comma)+
+  geom_smooth(method = "lm", se = TRUE, color = "black", fullrange = TRUE)+
+  annotate("text", x = 10, y = 15000, label = expression(paste("p = 0.01   ", italic("r"^2)," = 0.55")), size = 2.822, hjust = 0)+
+  annotate("text", x = 10, y = 13700, label = "y = 7159*log(x) - 7337", size = 2.822, hjust = 0)
+co2_dissP_plot
+
+
+co2_emerg_plot = ggplot(biplot_dat, aes(x = `% emergent cover`, y = big_pco2_mean))+
+  geom_point(color = "#1b9e77", size = 3, shape = 16)+
+  geom_point(size = 3, shape = 1, lwd = 2)+
+  theme_classic()+
+  theme(legend.position="none")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_text(size = 8, colour = "black"),
+         axis.title.x = element_text(size = 8,colour = "black"))+
+  labs(y = expression(paste("Mean ",italic("p"),"CO"[2]*" (",mu,"atm)")))+
+  labs(x = expression(paste("% Emergent Cover")))+
+  scale_y_continuous(breaks = c(0, 5000, 10000, 15000))+
+  scale_x_continuous(labels = comma)+
+  geom_smooth(method = "lm", se = TRUE, color = "black", fullrange = TRUE)+
+  annotate("text", x = 0, y = 15000, label = expression(paste("p = 0.01   ", italic("r"^2)," = 0.27")), size = 2.822, hjust = 0)+
+  annotate("text", x = 0, y = 13700, label = "y = 170.0x + 1054.3", size = 2.822, hjust = 0)
+co2_emerg_plot
+
+co2_float_plot = ggplot(biplot_dat, aes(x = `% floating cover`, y = big_pco2_mean))+
+  geom_point(color = "#1b9e77", size = 3, shape = 16)+
+  geom_point(size = 3, shape = 1, lwd = 2)+
+  theme_classic()+
+  theme(legend.position="none")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_text(size = 8, colour = "black"),
+         axis.title.x = element_text(size = 8,colour = "black"))+
+  labs(y = expression(paste("Mean ",italic("p"),"CO"[2]*" (",mu,"atm)")))+
+  labs(x = expression(paste("% Floating Cover")))+
+  scale_y_continuous(breaks = c(0, 5000, 10000, 15000))+
+  scale_x_continuous(labels = comma)+
+  geom_smooth(method = "lm", se = TRUE, color = "black", fullrange = TRUE)+
+  annotate("text", x = 0, y = 15000, label = expression(paste("p < 0.01   ", italic("r"^2)," = 0.32")), size = 2.822, hjust = 0)+
+  annotate("text", x = 0, y = 13700, label = "y = 60.0x + 1375.0", size = 2.822, hjust = 0)
+co2_float_plot
+
+
+#do the regressions for CH4
+
+ch4_area_plot = ggplot(biplot_dat, aes(x = `Surface Area (m2)`, y = big_pch4_mean))+
+  geom_point(color = "#d95f02", size = 3, shape = 16)+
+  geom_point(size = 3, shape = 1, lwd = 2)+
+  theme_classic()+
+  theme(legend.position="none")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_text(size = 8, colour = "black"),
+         axis.title.x = element_text(size = 8,colour = "black"))+
+  labs(y = expression(paste("Mean ",italic("p"),"CH"[4]*" (",mu,"atm)")))+
+  labs(x = expression(paste("Surface Area (m"^2*")")))+
+  scale_x_continuous(trans = 'log10', labels = comma, breaks = c(1000, 10000, 1000000))+
+  scale_y_continuous(trans = 'log10', labels = comma)+
+  geom_smooth(method = "lm", se = TRUE, color = "black", fullrange = TRUE)+
+  annotate("text", x = 1000, y = 150, label = expression(paste("p = 0.03   ", italic("r"^2)," = 0.16")), size = 2.822, hjust = 0)+
+  annotate("text", x = 1000, y = 80, label = "log(y) = -0.28log(x) + 4.45", size = 2.822, hjust = 0)
+ch4_area_plot
+
+max(biplot_dat$`Perimeter (m)`)
+ch4_perim_plot = ggplot(biplot_dat, aes(x = `Perimeter (m)`, y = big_pch4_mean))+
+  geom_point(color = "#d95f02", size = 3, shape = 16)+
+  geom_point(size = 3, shape = 1, lwd = 2)+
+  theme_classic()+
+  theme(legend.position="none")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_text(size = 8, colour = "black"),
+         axis.title.x = element_text(size = 8,colour = "black"))+
+  labs(y = expression(paste("Mean ",italic("p"),"CH"[4]*" (",mu,"atm)")))+
+  labs(x = expression(paste("Perimeter (m)")))+
+  scale_y_continuous(trans = 'log10', labels = comma)+
+  scale_x_continuous(trans = 'log10', labels = comma)+
+  geom_smooth(method = "lm", se = TRUE, color = "black", fullrange = TRUE)+
+  annotate("text", x = 100, y = 150, label = expression(paste("p = 0.04   ", italic("r"^2)," = 0.14")), size = 2.822, hjust = 0)+
+  annotate("text", x = 100, y = 80, label = "log(y) = -0.53log(x) + 4.77", size = 2.822, hjust = 0)
+ch4_perim_plot
+
+ch4_float_plot = ggplot(biplot_dat, aes(x = `% floating cover`, y = big_pch4_mean))+
+  geom_point(color = "#d95f02", size = 3, shape = 16)+
+  geom_point(size = 3, shape = 1, lwd = 2)+
+  theme_classic()+
+  theme(legend.position="none")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_text(size = 8, colour = "black"),
+         axis.title.x = element_text(size = 8,colour = "black"))+
+  labs(y = expression(paste("Mean ",italic("p"),"CH"[4]*" (",mu,"atm)")))+
+  labs(x = expression(paste("% Floating Cover")))+
+  scale_y_continuous(trans = 'log10', labels = comma)+
+  scale_x_continuous(labels = comma, limits = c(0,100))+
+  geom_smooth(method = "lm", se = TRUE, color = "black", fullrange = TRUE)+
+  annotate("text", x = 10, y = 30000, label = expression(paste("p = 0.01   ", italic("r"^2)," = 0.22")), size = 2.822, hjust = 0)+
+  annotate("text", x = 10, y = 20000, label = "log(y) = 0.01x + 3.16", size = 2.822, hjust = 0)
+ch4_float_plot
+
+##put them all together
+library(patchwork)
+
+mean_rels_co2_plot = co2_area_plot + co2_perim_plot + co2_fetch_plot+
+  co2_dissP_plot + co2_emerg_plot + co2_float_plot+
+  plot_layout(ncol = 2, nrow = 3)+
+  plot_annotation(tag_levels = "A")
+
+ggsave(filename = "co2_mean_rels_plot.png", plot = mean_rels_co2_plot, width = 190, height = 190, units = "mm")
+
+mean_rels_ch4_plot = ch4_area_plot + ch4_perim_plot + ch4_float_plot+
+  plot_layout(ncol = 2, nrow = 2)
+ggsave(filename = "ch4_mean_rels_plot.png", plot = mean_rels_ch4_plot, width = 190, height = 126.6667, units = "mm")
+
+
+mean_rels_plot = co2_area_plot + co2_perim_plot + co2_fetch_plot+
+  co2_dissP_plot + co2_emerg_plot + co2_float_plot+
+  ch4_area_plot + ch4_perim_plot + ch4_float_plot+
+  plot_layout(ncol = 3, nrow = 3)+
+  plot_annotation(tag_levels = 'A')
+mean_rels_plot
+ggsave(filename = "mean_rels_plot.png", plot = mean_rels_plot, width = 190, height = 190, units = "mm")
+```
+
+Lets look at the basic means and variability across all ponds
+```{r}
+##pCO2 first
+mean(biplot_dat$big_pco2_mean)
+sd(biplot_dat$big_pco2_mean)
+
+mean(biplot_dat$big_pch4_mean)
+sd(biplot_dat$big_pch4_mean)
+
+#spatial variability
+#make pond mean z-score for each sampling date
+
+#if need to remake z_fig_dat data frame:
+#need to remove gibson and mud pond
+cent_dat = subset(cent_dat, pond != "Gibson Pond")
+cent_dat = subset(cent_dat, pond != "Mud Pond")
+
+mergeCols <- c("pond", "samp_round")
+
+###look at pco2 and pch4 in ponds with and without fish
+fish = subset(biplot_dat, `Fish (Present/Absent)` == "Present")
+no_fish = subset(biplot_dat, `Fish (Present/Absent)` == "Absent")
+
+mean(fish$big_pco2_mean)
+sd(fish$big_pco2_mean)
+mean(no_fish$big_pco2_mean)
+sd(no_fish$big_pco2_mean)
+
+mean(fish$big_pch4_mean)
+sd(fish$big_pch4_mean)
+mean(no_fish$big_pch4_mean)
+sd(no_fish$big_pch4_mean)
+```
+
+Test if variability in the center samples is > or < than variability across space
+```{r}
+center_var_dat = subset(gas_dat, samp_loc_in_pond == "center")
+
+library(tidyr)
+library(dplyr)
+centervardata1 <- center_var_dat %>%
+  group_by(pond, samp_round) %>%
+  summarise(center_pco2_uatm_var = sd(pco2_uatm, na.rm = TRUE),
+            center_pch4_uatm_var = sd(pch4_uatm, na.rm = TRUE),
+            center_pco2_mean = mean(pco2_uatm, na.rm = TRUE),
+            center_pch4_mean = mean(pch4_uatm, na.rm = TRUE))
+head(centervardata1)
+
+#then compare the center sd with the full sampling date sd using the "new gas means" daily sd
+daily_sd = new_gas_means[,c("pond", "samp_round","pco2_sd", "pch4_sd", "pco2_mean", "pch4_mean")]
+daily_sd
+
+space_var_comp = merge(centervardata1, daily_sd, by = c("pond", "samp_round"))
+
+#set the center var to O if NA (Maxweel Pond has NA as all concentrations were zero)
+space_var_comp$center_pco2_uatm_var[is.na(space_var_comp$center_pco2_uatm_var)] <- 0
+space_var_comp$center_pch4_uatm_var[is.na(space_var_comp$center_pch4_uatm_var)] <- 0
+
+plot(data = space_var_comp, log10(center_pco2_uatm_var) ~ log10(pco2_sd))
+summary(lm(data = space_var_comp, center_pco2_uatm_var ~ pco2_sd))
+
+plot(data = space_var_comp, log10(center_pch4_uatm_var) ~ log10(pch4_sd))
+summary(lm(data = space_var_comp, center_pch4_uatm_var ~ pch4_sd))
+
+#and lets count how frequently each was higher
+space_var_comp$a = space_var_comp$center_pco2_uatm_var > space_var_comp$pco2_sd
+summary(space_var_comp$a)
+
+space_var_comp$b = space_var_comp$center_pch4_uatm_var > space_var_comp$pch4_sd
+summary(space_var_comp$b)
+
+##make log:log plots comparing pond mean to pond SD on each sampling date, coloring in points if they are hihger/lower SD in the center relative to the whole pond
+library(ggplot2)
+
+co2_plot_dat = subset(space_var_comp, a != "NA")
+ch4_plot_dat = subset(space_var_comp, b != "NA")
+
+####and make nice plots of whole pond SD as a function of mean
+space_var_comp_b = subset(space_var_comp, pond != "Mud Pond")
+space_var_comp_b = subset(space_var_comp_b, pond != "Gibson Pond")
+summary(lm(log10(space_var_comp_b$pco2_sd + 1) ~ log10(space_var_comp_b$pco2_mean + 1)))
+
+library(ggtext)
+co2_sd_mean_comp_plot = ggplot() + 
+  theme_classic()+
+  geom_smooth(data = space_var_comp, aes(x = log10(pco2_mean), y = log10(pco2_sd)), method = lm, color = "black")+
+  geom_point(data = space_var_comp, aes(x = log10(pco2_mean), y = log10(pco2_sd), color = a), shape = 16, size = 3)+
+  scale_color_manual(values = c("TRUE" = "white", "FALSE" = "#1b9e77"))+
+  geom_point(data = space_var_comp, aes(x = log10(pco2_mean), y = log10(pco2_sd)), shape = 1, size = 3, color = "black")+
+  labs(x = "Log<sub>10</sub> Mean <i>p</i>CO<sub>2</sub> (&mu;atm)")+
+  labs(y = "Log<sub>10</sub> SD <i>p</i>CO<sub>2</sub> (&mu;atm)")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+         axis.title.x = element_markdown(size = 8, colour = "black"))+
+  annotate("text", x = 0.3, y = 5, label = "Center SD > Whole Pond SD", size = 2.822, hjust = 0) +
+  annotate("point", x = 0.1, y = 5, shape = 16, color = "white", size = 3)+
+  annotate("point", x = 0.1, y = 5, shape = 1, color = "black", size = 3)+
+  annotate("text", x = 0.3, y = 4.5, label = "Center SD < Whole Pond SD", size = 2.822, hjust = 0)+
+  annotate("point", x = 0.1, y = 4.5, shape = 16, color = "#1b9e77", size = 3)+
+  annotate("point", x = 0.1, y = 4.5, shape = 1, color = "black", size = 3)+
+  annotate("text", x = 0.3, y = 4, label = expression(paste("p < 0.01   ", italic("r"^2)," = 0.74")), size = 2.822, hjust = 0)+
+  annotate("text", x = 0.3, y = 3.5, label = "y = 0.67x + 0.29", size = 2.822, hjust = 0)+
+  theme(legend.position = "none")
+co2_sd_mean_comp_plot
+
+#repeat for ch4
+summary(lm(log10(space_var_comp_b$pch4_sd) ~ log10(space_var_comp_b$pch4_mean)))
+
+ch4_sd_mean_comp_plot = ggplot() + 
+  theme_classic()+
+  geom_smooth(data = space_var_comp, aes(x = log10(pch4_mean), y = log10(pch4_sd)), method = lm, color = "black")+
+  geom_point(data = space_var_comp, aes(x = log10(pch4_mean), y = log10(pch4_sd), color = a), shape = 16, size = 3)+
+  scale_color_manual(values = c("TRUE" = "white", "FALSE" = "#d95f02"))+
+  geom_point(data = space_var_comp, aes(x = log10(pch4_mean), y = log10(pch4_sd)), shape = 1, size = 3, color = "black")+
+  labs(x = "Log<sub>10</sub> Mean <i>p</i>CH<sub>4</sub> (&mu;atm)")+
+  labs(y = "Log<sub>10</sub> SD <i>p</i>CH<sub>4</sub> (&mu;atm)")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+         axis.title.x = element_markdown(size = 8, colour = "black"))+
+  annotate("text", x = 2.1, y = 5, label = "Center SD > Whole Pond SD", size = 2.822, hjust = 0) +
+  annotate("point", x = 2, y = 5, shape = 16, color = "white", size = 3)+
+  annotate("point", x = 2, y = 5, shape = 1, color = "black", size = 3)+
+  annotate("text", x = 2.1, y = 4.5, label = "Center SD < Whole Pond SD", size = 2.822, hjust = 0)+
+  annotate("point", x = 2, y = 4.5, shape = 16, color = "#d95f02", size = 3)+
+  annotate("point", x = 2, y = 4.5, shape = 1, color = "black", size = 3)+
+  annotate("text", x = 2.1, y = 4, label = expression(paste("p < 0.01   ", italic("r"^2)," = 0.77")), size = 2.822, hjust = 0)+
+  annotate("text", x = 2.1, y = 3.5, label = "y = 1.11x - 1.02", size = 2.822, hjust = 0)+
+  theme(legend.position = "none")
+ch4_sd_mean_comp_plot
+
+##and calculate out the residuals from these plots and plot them out to show if center residuals above or below zero
+
+space_var_comp_b$pco2_res = residuals(na.omit(lm(log10(space_var_comp_b$pco2_sd + 1) ~ log10(space_var_comp_b$pco2_mean + 1))))
+space_var_comp_b$pco2_res
+
+co2_space_res_plot = ggplot() + 
+  theme_classic()+
+  geom_hline(yintercept = 0)+
+  geom_point(data = space_var_comp_b, aes(x = log10(pco2_mean), y = pco2_res, color = a), shape = 16, size = 3)+
+  scale_color_manual(values = c("TRUE" = "white", "FALSE" = "#1b9e77"))+
+  geom_point(data = space_var_comp_b, aes(x = log10(pco2_mean), y = pco2_res), shape = 1, size = 3, color = "black")+
+  labs(x = "Log<sub>10</sub> Mean <i>p</i>CO<sub>2</sub> (&mu;atm)")+
+  labs(y = "Residual of<br>(Log<sub>10</sub> SD <i>p</i>CO<sub>2</sub> ~ Log<sub>10</sub> Mean <i>p</i>CO<sub>2</sub>)")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+         axis.title.x = element_markdown(size = 8, colour = "black"))+
+  theme(legend.position = "none")
+co2_space_res_plot
+
+space_var_comp_b$pch4_res = residuals(na.omit(lm(log10(space_var_comp_b$pch4_sd + 1) ~ log10(space_var_comp_b$pch4_mean + 1))))
+space_var_comp_b$pch4_res
+
+ch4_space_res_plot = ggplot() + 
+  theme_classic()+
+  geom_hline(yintercept = 0)+
+  geom_point(data = space_var_comp_b, aes(x = log10(pch4_mean), y = pch4_res, color = a), shape = 16, size = 3)+
+  scale_color_manual(values = c("TRUE" = "white", "FALSE" = "#d95f02"))+
+  geom_point(data = space_var_comp_b, aes(x = log10(pch4_mean), y = pch4_res), shape = 1, size = 3, color = "black")+
+  labs(x = "Log<sub>10</sub> Mean <i>p</i>CH<sub>4</sub> (&mu;atm)")+
+  labs(y = "Residual of<br>(Log<sub>10</sub> SD <i>p</i>CH<sub>4</sub> ~ Log<sub>10</sub> Mean <i>p</i>CH<sub>4</sub>)")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+         axis.title.x = element_markdown(size = 8, colour = "black"))+
+  theme(legend.position = "none")
+ch4_space_res_plot
+
+
+
+library(patchwork)
+ghg_sd_mean_plot = co2_sd_mean_comp_plot + co2_space_res_plot + ch4_sd_mean_comp_plot + ch4_space_res_plot +
+  plot_layout(ncol = 2)+
+  plot_annotation(tag_levels = "A", tag_suffix = ".")& 
+  theme(plot.tag = element_text(size = 8))
+ghg_sd_mean_plot
+
+ggsave(filename = "sd_mean_ponding_ghg_fig.png", plot = ghg_sd_mean_plot, width = 190, height = 150, units = "mm")
+```
+
+
+And now get the temporal variability dataset together and make similar plots as for spatial variability:
+```{r}
+#make the smaller data set for time using the "new_gas_means" dataset
+biplot_dat = all_dat %>%
+  group_by(pond) %>%
+  summarise(big_pco2_mean = mean(pco2_mean, na.rm = TRUE),
+            big_pch4_mean = mean(pch4_mean, na.rm = TRUE),
+            big_pco2_sd = sd(pco2_mean, na.rm = TRUE),
+            big_pch4_sd = sd(pch4_mean, na.rm = TRUE))
+
+#and then merge it with the predictor variables
+temp_var_dat = merge(metadata_ponding_var, biplot_dat, by = c ("pond"))
+temp_var_dat = subset(temp_var_dat, pond != "Mud Pond")
+
+#and now need to add on the days between sampling events
+#use "days_between_ponding" dataset
+library(readxl)
+days_between_ponding <- read_excel("C:/Users/ner35/Dropbox/Cornell/PONDING Carbon/Stats - Aug 2021 and On/days_between - ponding.xlsx")
+View(days_between_ponding)
+
+days_between_ponding$pond = days_between_ponding$`Pond Name`
+
+temp_var_dat = merge(temp_var_dat, days_between_ponding, by = c ("pond"))
+
+####ok, make the plots:
+summary(lm(log10(temp_var_dat$big_pco2_sd) ~ log10(temp_var_dat$big_pco2_mean)))
+
+library(ggtext)
+time_co2_sd_mean_plot = ggplot() + 
+  theme_classic()+
+  geom_smooth(data = temp_var_dat, aes(x = log10(big_pco2_mean), y = log10(big_pco2_sd)), method = lm, color = "black")+
+  geom_point(data = temp_var_dat, aes(x = log10(big_pco2_mean), y = log10(big_pco2_sd)), shape = 16, size = 3, color = "#1b9e77")+
+  geom_point(data = temp_var_dat, aes(x = log10(big_pco2_mean), y = log10(big_pco2_sd)), shape = 1, size = 3, color = "black")+
+  labs(x = "Log<sub>10</sub> Mean <i>p</i>CO<sub>2</sub> (&mu;atm)")+
+  labs(y = "Log<sub>10</sub> SD <i>p</i>CO<sub>2</sub> (&mu;atm)")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+         axis.title.x = element_markdown(size = 8, colour = "black"))+
+  annotate("text", x = 1.1, y = 4, label = expression(paste("p < 0.01   ", italic("r"^2)," = 0.77")), size = 2.822, hjust = 0)+
+  annotate("text", x = 1.1, y = 3.5, label = "y = 0.82x + 0.23", size = 2.822, hjust = 0)+
+  theme(legend.position = "none")
+time_co2_sd_mean_plot
+
+temp_var_dat$pco2_res = residuals(na.omit(lm(log10(temp_var_dat$big_pco2_sd) ~ log10(temp_var_dat$big_pco2_mean))))
+temp_var_dat$pco2_res
+
+co2_time_res_plot = ggplot() + 
+  theme_classic()+
+  geom_hline(yintercept = 0)+
+  geom_point(data = temp_var_dat, aes(x = log10(big_pco2_mean), y = pco2_res), shape = 16, color = "#1b9e77", size = 3)+
+  geom_point(data = temp_var_dat, aes(x = log10(big_pco2_mean), y = pco2_res), shape = 1, size = 3, color = "black")+
+  labs(x = "Log<sub>10</sub> Mean <i>p</i>CO<sub>2</sub> (&mu;atm)")+
+  labs(y = "Residual of<br>(Log<sub>10</sub> SD <i>p</i>CO<sub>2</sub> ~ Log<sub>10</sub> Mean <i>p</i>CO<sub>2</sub>)")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+         axis.title.x = element_markdown(size = 8, colour = "black"))+
+  theme(legend.position = "none")
+co2_time_res_plot
+
+summary(lm(log10(temp_var_dat$big_pch4_sd) ~ log10(temp_var_dat$big_pch4_mean)))
+
+time_ch4_sd_mean_plot = ggplot() + 
+  theme_classic()+
+  geom_smooth(data = temp_var_dat, aes(x = log10(big_pch4_mean), y = log10(big_pch4_sd)), method = lm, color = "black")+
+  geom_point(data = temp_var_dat, aes(x = log10(big_pch4_mean), y = log10(big_pch4_sd)), shape = 16, size = 3, color = "#d95f02")+
+  geom_point(data = temp_var_dat, aes(x = log10(big_pch4_mean), y = log10(big_pch4_sd)), shape = 1, size = 3, color = "black")+
+  labs(x = "Log<sub>10</sub> Mean <i>p</i>CH<sub>4</sub> (&mu;atm)")+
+  labs(y = "Log<sub>10</sub> SD <i>p</i>CH<sub>4</sub> (&mu;atm)")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+         axis.title.x = element_markdown(size = 8, colour = "black"))+
+  annotate("text", x = 2.3, y = 5, label = expression(paste("p < 0.01   ", italic("r"^2)," = 0.88")), size = 2.822, hjust = 0)+
+  annotate("text", x = 2.3, y = 4.5, label = "y = 1.20x - 0.98", size = 2.822, hjust = 0)+
+  theme(legend.position = "none")
+time_ch4_sd_mean_plot
+
+temp_var_dat$pch4_res = residuals(na.omit(lm(log10(temp_var_dat$big_pch4_sd) ~ log10(temp_var_dat$big_pch4_mean))))
+temp_var_dat$pch4_res
+
+ch4_time_res_plot = ggplot() + 
+  theme_classic()+
+  geom_hline(yintercept = 0)+
+  geom_point(data = temp_var_dat, aes(x = log10(big_pch4_mean), y = pch4_res), shape = 16, color = "#d95f02", size = 3)+
+  geom_point(data = temp_var_dat, aes(x = log10(big_pch4_mean), y = pch4_res), shape = 1, size = 3, color = "black")+
+  labs(x = "Log<sub>10</sub> Mean <i>p</i>CH<sub>4</sub> (&mu;atm)")+
+  labs(y = "Residual of<br>(Log<sub>10</sub> SD <i>p</i>CH<sub>4</sub> ~ Log<sub>10</sub> Mean <i>p</i>CH<sub>4</sub>)")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+         axis.title.x = element_markdown(size = 8, colour = "black"))+
+  theme(legend.position = "none")
+ch4_time_res_plot
+
+
+library(patchwork)
+ghg_sd_mean_time_plot = time_co2_sd_mean_plot + co2_time_res_plot + time_ch4_sd_mean_plot + ch4_time_res_plot +
+  plot_layout(ncol = 2)+
+  plot_annotation(tag_levels = "A", tag_suffix = ".")& 
+  theme(plot.tag = element_text(size = 8))
+ghg_sd_mean_time_plot
+
+ggsave(filename = "time_sd_mean_ponding_ghg_fig.png", plot = ghg_sd_mean_time_plot, width = 190, height = 150, units = "mm")
+```
+
+Ok, now do some regressions using the spatial residuals
+Will need to incorporate random effects
+```{r}
+library(lme4)
+library(sjstats)
+library(lmerTest)
+
+#use the "space_dat" dataset
+#CO2 first
+fit = lmer(data = space_dat, co2_res ~ log10(`Surface Area (m2)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, co2_res ~ log10(`Perimeter (m)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, co2_res ~ log10(`Fetch (m)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, co2_res ~ log10(`Max Depth (m)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, co2_res ~ log10(`DOC (mg/L)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, co2_res ~ log10(`TP (ug/L)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, co2_res ~ log10(`TDP (ug/L)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, co2_res ~ log10(`Chlorophyll a (ug/L)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, co2_res ~ log10(`Conductivity (us/cm)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, co2_res ~ pH + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, co2_res ~ `% emergent cover` + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, co2_res ~ `% submerged cover` + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, co2_res ~ `% floating cover` + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, co2_res ~ log10(`SecchiDepth (m)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, co2_res ~ `Fish (Present/Absent)` + (1|pond))
+summary(fit)
+r2(fit)
+
+#ch4 next
+fit = lmer(data = space_dat, ch4_res ~ log10(`Surface Area (m2)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, ch4_res ~ log10(`Perimeter (m)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, ch4_res ~ log10(`Fetch (m)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, ch4_res ~ log10(`Max Depth (m)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, ch4_res ~ log10(`DOC (mg/L)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, ch4_res ~ log10(`TP (ug/L)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, ch4_res ~ log10(`TDP (ug/L)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, ch4_res ~ log10(`Chlorophyll a (ug/L)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, ch4_res ~ log10(`Conductivity (us/cm)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, ch4_res ~ pH + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, ch4_res ~ `% emergent cover` + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, ch4_res ~ `% submerged cover` + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, ch4_res ~ `% floating cover` + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, ch4_res ~ log10(`SecchiDepth (m)`) + (1|pond))
+summary(fit)
+r2(fit)
+
+fit = lmer(data = space_dat, co2_res ~ `Fish (Present/Absent)` + (1|pond))
+summary(fit)
+r2(fit)
+```
+
+
+And repeat with the temporal residuals
+```{r}
+#start with co2 residuals
+summary(lm((temp_var_dat$pco2_res) ~ log10(temp_var_dat$`Surface Area (m2)`)))
+
+summary(lm((temp_var_dat$pco2_res) ~ log10(temp_var_dat$`Perimeter (m)`)))
+
+summary(lm((temp_var_dat$pco2_res) ~ log10(temp_var_dat$`Fetch (m)`)))
+
+summary(lm(temp_var_dat$pco2_res ~ log10(temp_var_dat$`Max Depth (m)`)))
+
+summary(lm((temp_var_dat$pco2_res) ~ log10(temp_var_dat$`DOC (mg/L)`)))
+
+summary(lm((temp_var_dat$pco2_res) ~ log10(temp_var_dat$`TP (ug/L)`)))
+
+summary(lm((temp_var_dat$pco2_res) ~ log10(temp_var_dat$`TDP (ug/L)`)))
+
+summary(lm((temp_var_dat$pco2_res) ~ log10(temp_var_dat$`Chlorophyll a (ug/L)`)))
+
+summary(lm((temp_var_dat$pco2_res) ~ log10(temp_var_dat$`Conductivity (us/cm)`)))
+
+summary(lm((temp_var_dat$pco2_res) ~ (temp_var_dat$pH)))
+
+summary(lm((temp_var_dat$pco2_res) ~ (temp_var_dat$`% emergent cover`)))
+
+summary(lm((temp_var_dat$pco2_res) ~ (temp_var_dat$`% submerged cover`)))
+
+summary(lm((temp_var_dat$pco2_res) ~ (temp_var_dat$`% floating cover`)))
+
+t.test((temp_var_dat$pco2_res) ~ temp_var_dat$`Fish (Present/Absent)`, var.equal = TRUE)
+
+summary(lm((temp_var_dat$pco2_res) ~ log10(temp_var_dat$days_first_to_last)))
+
+summary(lm(temp_var_dat$pco2_res ~ temp_var_dat$`SecchiDepth (m)`))
+
+
+#repeat with ch4
+summary(lm((temp_var_dat$pch4_res) ~ log10(temp_var_dat$`Surface Area (m2)`)))
+
+summary(lm((temp_var_dat$pch4_res) ~ log10(temp_var_dat$`Perimeter (m)`)))
+
+summary(lm((temp_var_dat$pch4_res) ~ log10(temp_var_dat$`Fetch (m)`)))
+
+summary(lm(temp_var_dat$pch4_res ~ log10(temp_var_dat$`Max Depth (m)`)))
+
+summary(lm((temp_var_dat$pch4_res) ~ log10(temp_var_dat$`DOC (mg/L)`)))
+
+summary(lm((temp_var_dat$pch4_res) ~ log10(temp_var_dat$`TP (ug/L)`)))
+
+summary(lm((temp_var_dat$pch4_res) ~ log10(temp_var_dat$`TDP (ug/L)`)))
+
+summary(lm((temp_var_dat$pch4_res) ~ log10(temp_var_dat$`Chlorophyll a (ug/L)`)))
+
+summary(lm((temp_var_dat$pch4_res) ~ log10(temp_var_dat$`Conductivity (us/cm)`)))
+
+summary(lm((temp_var_dat$pch4_res) ~ (temp_var_dat$pH)))
+
+summary(lm((temp_var_dat$pch4_res) ~ (temp_var_dat$`% emergent cover`)))
+
+summary(lm((temp_var_dat$pch4_res) ~ (temp_var_dat$`% submerged cover`)))
+
+summary(lm((temp_var_dat$pch4_res) ~ (temp_var_dat$`% floating cover`)))
+
+t.test((temp_var_dat$pch4_res) ~ temp_var_dat$`Fish (Present/Absent)`, var.equal = TRUE)
+
+summary(lm((temp_var_dat$pch4_res) ~ (temp_var_dat$big_pch4_mean)))
+
+summary(lm((temp_var_dat$pch4_res) ~ log10(temp_var_dat$days_first_to_last)))
+
+summary(lm(temp_var_dat$pch4_res ~ temp_var_dat$`SecchiDepth (m)`))
+```
+
+Make the plot for spatial variability:
+```{r}
+library(ggplot2)
+library(ggtext)
+#use the space_dat dataset
+##three ch4 figures
+#max depth
+ch4_space_depth = ggplot(space_dat, aes(x = `Max Depth (m)`, y = ch4_res))+
+  geom_point(color = "#d95f02", size = 3, shape = 16)+
+  geom_point(size = 3, shape = 1, lwd = 2)+
+  theme_classic()+
+  theme(legend.position="none")+
+  labs(x = "Maximum Depth (m)")+
+  labs(y = "Residual of<br>(Log<sub>10</sub> SD <i>p</i>CH<sub>4</sub> ~ Log<sub>10</sub> Mean <i>p</i>CH<sub>4</sub>)")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+         axis.title.x = element_markdown(size = 8, colour = "black"))+
+  scale_x_continuous(trans = 'log10')+
+  geom_smooth(method = "lm", se = TRUE, color = "black", fullrange = TRUE)+
+  annotate("text", x = .5, y = -1, label = expression(paste("p < 0.01   ", italic("R"^2)," = 0.13")), size = 2.822, hjust = 0)+
+  annotate("text", x = .5, y = -1.2, label = "y = -0.61log(x) + 0.09 + (1|Waterbody)", size = 2.822, hjust = 0)
+ch4_space_depth
+
+#and conductivity
+ch4_space_cond = ggplot(space_dat, aes(x = `Conductivity (us/cm)`, y = ch4_res))+
+  geom_point(color = "#d95f02", size = 3, shape = 16)+
+  geom_point(size = 3, shape = 1, lwd = 2)+
+  theme_classic()+
+  theme(legend.position="none")+
+  labs(x = "Conductivity(&mu;S cm<sup>-1</sup>)")+
+  labs(y = "Residual of<br>(Log<sub>10</sub> SD <i>p</i>CH<sub>4</sub> ~ Log<sub>10</sub> Mean <i>p</i>CH<sub>4</sub>)")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+         axis.title.x = element_markdown(size = 8, colour = "black"))+
+   scale_x_continuous(trans = 'log10')+
+  geom_smooth(method = "lm", se = TRUE, color = "black", fullrange = TRUE)+
+  annotate("text", x = 50, y = -1, label = expression(paste("p = 0.05   ", italic("R"^2)," = 0.08")), size = 2.822, hjust = 0)+
+  annotate("text", x = 50, y = -1.2, label = "y = 0.37log(x) - 0.59 + (1|Waterbody)", size = 2.822, hjust = 0)
+ch4_space_cond
+
+#and chl-a
+ch4_space_chla = ggplot(space_dat, aes(x = `Chlorophyll a (ug/L)`, y = ch4_res))+
+  geom_point(color = "#d95f02", size = 3, shape = 16)+
+  geom_point(size = 3, shape = 1, lwd = 2)+
+  theme_classic()+
+  theme(legend.position="none")+
+  labs(x = "Chlorophyll-a (&mu;g L<sup>-1</sup>)")+
+  labs(y = "Residual of<br>(Log<sub>10</sub> SD <i>p</i>CH<sub>4</sub> ~ Log<sub>10</sub> Mean <i>p</i>CH<sub>4</sub>)")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+         axis.title.x = element_markdown(size = 8, colour = "black"))+
+   scale_x_continuous(trans = 'log10')+
+  geom_smooth(method = "lm", se = TRUE, color = "black", fullrange = TRUE)+
+  annotate("text", x = 5, y = -1, label = expression(paste("p = 0.02   ", italic("R"^2)," = 0.08")), size = 2.822, hjust = 0)+
+  annotate("text", x = 5, y = -1.2, label = "y = 0.31log(x) - 0.77 + (1|Waterbody)", size = 2.822, hjust = 0)
+ch4_space_chla
+
+
+#print it
+library(patchwork)
+spatial_var_plot = ch4_space_depth + ch4_space_cond + ch4_space_chla +
+  plot_layout(nrow = 1, ncol = 3)+
+  plot_annotation(tag_levels = "A")
+spatial_var_plot
+
+spatial_var_plot[[2]] = 
+  spatial_var_plot[[2]] + theme(axis.text.y = element_blank(), axis.title.y = element_blank())
+
+spatial_var_plot[[3]] = 
+  spatial_var_plot[[3]] + theme(axis.text.y = element_blank(), axis.title.y = element_blank())
+
+spatial_var_plot
+
+ggsave(filename = "spatial_ghg_var_plot.png", plot = spatial_var_plot, width = 190, height = 70, units = "mm")
+
+```
+
+And the figures for temporal variability:
+```{r}
+#use the temp_var_dat dataset:
+require(scales)
+co2_time_chla = ggplot(temp_var_dat, aes(x = `Chlorophyll a (ug/L)`, y = pco2_res))+
+  geom_point(color = "#1b9e77", size = 3, shape = 16)+
+  geom_point(size = 3, shape = 1, lwd = 2)+
+  theme_classic()+
+  theme(legend.position="none")+
+  labs(y = "Residual of<br>(Log<sub>10</sub> SD <i>p</i>CO<sub>2</sub> ~ Log<sub>10</sub> Mean <i>p</i>CO<sub>2</sub>)")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+         axis.title.x =  element_text(size = 8,colour = "black"))+
+  labs(x = expression(paste("Chlorophyll-a (",mu,"g L"^-1*")")))+
+  #scale_y_continuous(breaks = c(0,100,200,300))+
+  scale_x_continuous(trans = 'log10', labels = comma, breaks = c(10, 25, 50, 100))+
+  geom_smooth(method = "lm", se = TRUE, color = "black", fullrange = TRUE)+
+  annotate("text", x = 10, y = -0.8, label = expression(paste("p = 0.03   ", italic("r"^2)," = 0.21")), size = 2.822, hjust = 0)+
+  annotate("text", x = 10, y = -1, label = "y = -0.57log(x) + 0.77", size = 2.822, hjust = 0)
+co2_time_chla
+
+co2_time_emergent = ggplot(temp_var_dat, aes(x = `% emergent cover`, y = pco2_res))+
+  geom_point(color = "#1b9e77", size = 3, shape = 16)+
+  geom_point(size = 3, shape = 1, lwd = 2)+
+  theme_classic()+
+  theme(legend.position="none")+
+  labs(y = "Residual of<br>(Log<sub>10</sub> SD <i>p</i>CO<sub>2</sub> ~ Log<sub>10</sub> Mean <i>p</i>CO<sub>2</sub>)")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+         axis.title.x =  element_text(size = 8,colour = "black"))+
+  labs(x = expression(paste("% Emergent Cover")))+
+  scale_x_continuous(labels = comma, breaks = c(0,25,50), limits = c(0,50))+
+  geom_smooth(method = "lm", se = TRUE, color = "black", fullrange = TRUE)+
+  #coord_cartesian(xlim=c(NA,110), ylim=c(0,300))+
+  annotate("text", x = 1, y = -0.8, label = expression(paste("p = 0.04   ", italic("r"^2)," = 0.15")), size = 2.822, hjust = 0)+
+  annotate("text", x = 1, y = -1, label = "y = -0.01x + 0.16", size = 2.822, hjust = 0)
+co2_time_emergent
+
+co2_time_perim = ggplot(temp_var_dat, aes(x = `Perimeter (m)`, y = pco2_res))+
+  geom_point(color = "#1b9e77", size = 3, shape = 16)+
+  geom_point(size = 3, shape = 1, lwd = 2)+
+  theme_classic()+
+  theme(legend.position="none")+
+  labs(y = "Residual of<br>(Log<sub>10</sub> SD <i>p</i>CO<sub>2</sub> ~ Log<sub>10</sub> Mean <i>p</i>CO<sub>2</sub>)")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+         axis.title.x =  element_text(size = 8,colour = "black"))+
+  labs(x = expression(paste("Perimeter (m)")))+
+  #scale_y_continuous(breaks = c(0,100,200,300))+
+  scale_x_continuous(trans = 'log10', labels = comma, breaks = c(10, 100, 1000, 10000))+
+  geom_smooth(method = "lm", se = TRUE, color = "black", fullrange = TRUE)+
+  annotate("text", x = 100, y = -0.8, label = expression(paste("p = 0.05   ", italic("r"^2)," = 0.11")), size = 2.822, hjust = 0)+
+  annotate("text", x = 100, y = -1, label = "y = -0.29log(x) + 0.75", size = 2.822, hjust = 0)
+co2_time_perim
+
+#and make the CH4 ones
+ch4_time_depth = ggplot(temp_var_dat, aes(x = `Max Depth (m)`, y = pch4_res))+
+  geom_point(color = "#d95f02", size = 3, shape = 16)+
+  geom_point(size = 3, shape = 1, lwd = 2)+
+  theme_classic()+
+  theme(legend.position="none")+
+  labs(y = "Residual of<br>(Log<sub>10</sub> SD <i>p</i>CH<sub>4</sub> ~ Log<sub>10</sub> Mean <i>p</i>CH<sub>4</sub>)")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+         axis.title.x =  element_text(size = 8,colour = "black"))+
+  labs(x = expression(paste("Max Depth (m)")))+
+   geom_smooth(method = "lm", se = TRUE, color = "black", fullrange = TRUE)+
+  scale_y_continuous(breaks = c(-0.75, -0.5, -0.25, 0, 0.25, 0.5))+
+  scale_x_continuous(trans = 'log10', labels = comma, breaks = c(1, 2.5, 5))+
+  annotate("text", x = 1, y = -0.5, label = expression(paste("p = 0.01   ", italic("r"^2)," = 0.18")), size = 2.822, hjust = 0)+
+  annotate("text", x = 1, y = -0.7, label = "y = -0.51log(x) + 0.08", size = 2.822, hjust = 0)
+ch4_time_depth
+
+ch4_time_submerged = ggplot(temp_var_dat, aes(x = `% submerged cover`, y = pch4_res))+
+  geom_point(color = "#d95f02", size = 3, shape = 16)+
+  geom_point(size = 3, shape = 1, lwd = 2)+
+  theme_classic()+
+  theme(legend.position="none")+
+  scale_y_continuous(breaks = c(-0.75, -0.5, -0.25, 0, 0.25, 0.5))+
+  scale_x_continuous(labels = comma, breaks = c(0,25,50, 75, 100), limits = c(0,100))+
+  labs(y = "Residual of<br>(Log<sub>10</sub> SD <i>p</i>CH<sub>4</sub> ~ Log<sub>10</sub> Mean <i>p</i>CH<sub>4</sub>)")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+         axis.title.x =  element_text(size = 8,colour = "black"))+
+  labs(x = expression(paste("% Submerged Cover")))+
+  geom_smooth(method = "lm", se = TRUE, color = "black", fullrange = TRUE)+
+  annotate("text", x = 1, y = -0.5, label = expression(paste("p = 0.02   ", italic("r"^2)," = 0.20")), size = 2.822, hjust = 0)+
+  annotate("text", x = 1, y = -0.7, label = "y = -0.003x + 0.131", size = 2.822, hjust = 0)
+ch4_time_submerged
+
+ch4_time_days = ggplot(temp_var_dat, aes(x = days_first_to_last, y = pch4_res))+
+  geom_point(color = "#d95f02", size = 3, shape = 16)+
+  geom_point(size = 3, shape = 1, lwd = 2)+
+  theme_classic()+
+  theme(legend.position="none")+
+  labs(y = "Residual of<br>(Log<sub>10</sub> SD <i>p</i>CH<sub>4</sub> ~ Log<sub>10</sub> Mean <i>p</i>CH<sub>4</sub>)")+
+  theme(axis.text.x =  element_text(size = 8,colour = "black"),
+         axis.text.y =  element_text(size = 8,colour = "black"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+         axis.title.x =  element_text(size = 8,colour = "black"))+
+  labs(x = expression(paste("Days Between First & Last Sample")))+
+   geom_smooth(method = "lm", se = TRUE, color = "black", fullrange = TRUE)+
+  scale_y_continuous(breaks = c(-0.75, -0.5, -0.25, 0, 0.25, 0.5))+
+  #scale_x_continuous(trans = 'log10', labels = comma, breaks = c(1, 2.5, 5))+
+  annotate("text", x = 50, y = -0.5, label = expression(paste("p < 0.01   ", italic("r"^2)," = 0.24")), size = 2.822, hjust = 0)+
+  annotate("text", x = 50, y = -0.7, label = "y = 0.76log(x) -1.33", size = 2.822, hjust = 0)
+ch4_time_days
+
+#put them all together
+library(patchwork)
+temporal_var_plot = co2_time_perim + co2_time_chla + co2_time_emergent +
+  ch4_time_depth + ch4_time_submerged + ch4_time_days +
+  plot_layout(nrow = 2, ncol = 3)+
+  plot_annotation(tag_levels = "A")
+temporal_var_plot
+
+temporal_var_plot[[2]] = 
+  temporal_var_plot[[2]] + theme(axis.text.y = element_blank(), axis.title.y = element_blank())
+
+temporal_var_plot[[3]] = 
+  temporal_var_plot[[3]] + theme(axis.text.y = element_blank(), axis.title.y = element_blank())
+
+temporal_var_plot[[5]] = 
+  temporal_var_plot[[5]] + theme(axis.text.y = element_blank(), axis.title.y = element_blank())
+
+temporal_var_plot[[6]] = 
+  temporal_var_plot[[6]] + theme(axis.text.y = element_blank(), axis.title.y = element_blank())
+
+temporal_var_plot
+
+ggsave(filename = "temporal_ghg_var_plot.png", plot = temporal_var_plot, width = 190, height = 140, units = "mm")
+```
+
+
+
+Start with multiple regression for just the means
+```{r}
+library(MuMIn)
+library(lme4)
+
+#need to change NA options for MuMin
+options(na.action = "na.fail")
+
+#use the "biplot_dat" dataset
+biplot_dat$log_co2 = log10(biplot_dat$big_pco2_mean)
+biplot_dat$log_ch4 = log10(biplot_dat$big_pch4_mean)
+
+biplot_dat = merge(biplot_dat, metadata_ponding_var, by = c("pond"))
+
+#start with mean CO2
+doc_dat = subset(biplot_dat, `DOC (mg/L)` != "NA")
+doc_dat[,c(14,15,16, 22, 26,29,31,35,36,37)] = scale(doc_dat[,c(14,15,16, 22, 26,29,31,35,36,37)])
+#will need to make several models
+co2_mean_1 = lm(log_co2 ~ `Fetch (m)` + `Max Depth (m)` + `DOC (mg/L)` + pH + `Fish (Present/Absent)`, data = doc_dat)
+summary(co2_mean_1)
+dredge(co2_mean_1)
+
+#best model
+co2_mean_best = lm(log_co2 ~ `DOC (mg/L)` + pH + `Fish (Present/Absent)`, data = doc_dat)
+summary(co2_mean_best)
+#but pH does not seem to matter (effect/SE <2)
+#so will use DOC + Fish Presence for next steps
+summary(lm(log_co2 ~ `DOC (mg/L)` + `Fish (Present/Absent)`, data = doc_dat))
+
+
+#add chl-a to smaller dataset with just DOC and fish presence
+
+#and one with chl-a (lose power relative to doc_dat)
+chla_dat = subset(doc_dat, `Chlorophyll a (ug/L)` != "NA")
+co2_mean_2 = lm(log_co2 ~ `DOC (mg/L)` + `Fish (Present/Absent)` + `Chlorophyll a (ug/L)` + `Fish (Present/Absent)`, data = chla_dat)
+summary(co2_mean_2)
+dredge(co2_mean_2)
+#chl-a not useful
+
+#and one with plants(lose power relative to doc_dat)
+#floating
+float_dat = subset(doc_dat, `% floating cover` != "NA")
+co2_mean_3 = lm(log_co2 ~ `DOC (mg/L)` + `% floating cover` + `Fish (Present/Absent)`, data = float_dat)
+summary(co2_mean_3)
+dredge(co2_mean_3)
+#floating platns within 2...
+
+#emergent(lose power relative to doc_dat)
+emerge_dat = subset(doc_dat, `% emergent cover` != "NA")
+co2_mean_4 = lm(log_co2 ~ `DOC (mg/L)` + `% emergent cover` + `Fish (Present/Absent)`, data = emerge_dat)
+summary(co2_mean_4)
+dredge(co2_mean_4)
+##fish and DOC best
+
+#submerged plants
+submerge_dat = subset(doc_dat, `% submerged cover` != "NA")
+co2_mean_5 = lm(log_co2 ~ `DOC (mg/L)` + `% submerged cover` + `Fish (Present/Absent)`, data = submerge_dat)
+summary(co2_mean_5)
+dredge(co2_mean_5)
+
+
+
+# repeat for CH4
+#will need to make several models
+ch4_mean_1 = lm(log_ch4 ~ (`Surface Area (m2)`) + (`Max Depth (m)`) + (`DOC (mg/L)`) + pH + `Fish (Present/Absent)`, data = doc_dat)
+summary(ch4_mean_1)
+dredge(ch4_mean_1)
+#best is fish alone
+
+#look at estimate/SE
+ch4_mean_best = lm(log_ch4 ~ `Fish (Present/Absent)`, data = doc_dat)
+summary(ch4_mean_best)
+
+#try with chlorophyll
+ch4_mean_2 = lm(log_ch4 ~ (`Chlorophyll a (ug/L)`) + `Fish (Present/Absent)`, data = chla_dat)
+summary(ch4_mean_2)
+dredge(ch4_mean_2)
+#chl-a not useful
+
+#and floating cover
+ch4_mean_3 = lm(log_ch4 ~ `% floating cover` + `Fish (Present/Absent)`, data = float_dat)
+summary(ch4_mean_3)
+dredge(ch4_mean_3)
+#floating cover and fish presence, second best is floating cover alone
+summary(lm(log_ch4 ~ `% floating cover` + `Fish (Present/Absent)`, data = float_dat))
+
+#emergent
+ch4_mean_4 = lm(log_ch4 ~ `% emergent cover` + `Fish (Present/Absent)`, data = emerge_dat)
+summary(ch4_mean_4)
+dredge(ch4_mean_4)
+
+#submerged plants
+ch4_mean_5 = lm(log_ch4 ~ `% submerged cover` + `Fish (Present/Absent)`, data = submerge_dat)
+summary(ch4_mean_5)
+dredge(ch4_mean_5)
+
+#and reset the NA options
+options(na.action = "na.omit")
+```
+
+
+Repeat this for the spatial variability - be sure to add in random effects to the models!!
+```{r}
+#use the "space_dat" dataset
+library(MuMIn)
+library(lme4)
+
+#need to change NA options for MuMin
+options(na.action = "na.fail")
+
+#subset to get rid of systems without DOC measure
+space_doc_dat = subset(space_dat, `DOC (mg/L)` != "NA")
+space_doc_dat[,c(8,9,10, 16, 20,23,25,29,30,31)] = scale(space_doc_dat[,c(8,9,10, 16, 20,23,25,29,30,31)])
+
+#make the base model for CO2 residuals over time 
+co2_space_base = lmer(co2_res ~ (`Fetch (m)`) + (`Max Depth (m)`) + (`DOC (mg/L)`) + pH + `Fish (Present/Absent)` + (1|pond), data = space_doc_dat)
+summary(co2_space_base)
+dredge(co2_space_base)
+#null model is the best
+
+#add in chl-a (does it matter??)
+space_chl_dat = subset(space_doc_dat, `Chlorophyll a (ug/L)` != "NA")
+co2_space_chl = lmer(co2_res ~ (`Chlorophyll a (ug/L)`) + (1|pond), data = space_chl_dat)
+summary(co2_space_chl)
+dredge(co2_space_chl)
+##not included in top two models, which includes null model and one with just max depth
+
+#try with floating plants
+float_space_dat = subset(space_doc_dat, `% floating cover` != "NA")
+co2_space_float = lmer(co2_res ~ `% floating cover` + (1|pond), data = float_space_dat)
+summary(co2_space_float)
+dredge(co2_space_float)
+##not useful
+
+#and emeregent plants
+emerge_space_dat = subset(space_doc_dat, `% emergent cover` != "NA")
+co2_space_emerge = lmer(co2_res ~ `% emergent cover` + (1|pond), data = emerge_space_dat)
+summary(co2_space_emerge)
+dredge(co2_space_emerge)
+#also not useful
+
+
+submerge_space_dat = subset(space_doc_dat, `% submerged cover` != "NA")
+co2_space_submerge = lmer(co2_res ~ `% submerged cover` + (1|pond), data = submerge_space_dat)
+summary(co2_space_submerge)
+dredge(co2_space_submerge)
+
+#so the best model for CO2 variability in space is the null!
+co2_space_best = lmer(co2_res ~ (1|pond), data = space_doc_dat)
+summary(co2_space_best)
+r2(co2_space_best)
+
+#repeat for ch4
+ch4_space_base = lmer(ch4_res ~ (`Fetch (m)`) + (`Max Depth (m)`) + (`DOC (mg/L)`) + pH + `Fish (Present/Absent)` + (1|pond), data = space_doc_dat)
+summary(ch4_space_base)
+dredge(ch4_space_base)
+
+#best is max depth alone
+summary(lmer(ch4_res ~ (`Max Depth (m)`) + (1|pond), data = space_doc_dat))
+r2(lmer(ch4_res ~ (`Max Depth (m)`) + (1|pond), data = space_doc_dat))
+
+#add chl-a
+ch4_space_chl = lmer(ch4_res ~ `Max Depth (m)` + (`Chlorophyll a (ug/L)`) + (1|pond), data = space_chl_dat)
+summary(ch4_space_chl)
+dredge(ch4_space_chl)
+#chl-a is not included in the top several models
+
+#ok, so how about floating cover?
+ch4_space_float = lmer(ch4_res ~ `Max Depth (m)` + `% floating cover` + (1|pond), data = float_space_dat)
+summary(ch4_space_float)
+dredge(ch4_space_float)
+##not useful
+
+#and emeregent plants
+ch4_space_emerge = lmer(ch4_res ~ `Max Depth (m)` + `% emergent cover` + (1|pond), data = emerge_space_dat)
+summary(ch4_space_emerge)
+dredge(ch4_space_emerge)
+#not useful
+
+ch4_space_submerge = lmer(ch4_res ~ `Max Depth (m)` + `% submerged cover` + (1|pond), data = submerge_space_dat)
+summary(ch4_space_submerge)
+dredge(ch4_space_submerge)
+
+#so the best model for ch4 is maximum depth alone
+ch4_space_best = lmer(ch4_res ~ log10(`Max Depth (m)`) + (1|pond), data = space_doc_dat)
+summary(ch4_space_best)
+r2(ch4_space_best)
+
+#and reset the NA options
+options(na.action = "na.omit")
+```
+
+
+And finally repet this for the temporal variability (no random effect)
+```{r}
+library(MuMIn)
+library(lme4)
+
+#need to change NA options for MuMin
+options(na.action = "na.fail")
+
+#use the "temp_var_dat" dataset
+
+#start with mean CO2
+temp_doc_dat = subset(temp_var_dat, `DOC (mg/L)` != "NA")
+temp_doc_dat[,c(8,9,10, 16, 20,23,25,29,30,31)] = scale(temp_doc_dat[,c(8,9,10, 16, 20,23,25,29,30,31)])
+
+#will need to make several models
+temp_co2_base = lm(pco2_res ~ (`Perimeter (m)`) + (`Max Depth (m)`) + (`DOC (mg/L)`) + pH + `Fish (Present/Absent)`, data = temp_doc_dat)
+summary(temp_co2_base)
+dredge(temp_co2_base)
+summary(lm(pco2_res ~ `Perimeter (m)`, data =temp_doc_dat))
+
+#and one with chl-a (lose power relative to doc_dat)
+tem_chla_dat = subset(temp_doc_dat, `Chlorophyll a (ug/L)` != "NA")
+temp_co2_chla = lm(pco2_res ~ `Chlorophyll a (ug/L)`, data = tem_chla_dat)
+summary(temp_co2_chla)
+dredge(temp_co2_chla)
+
+
+#and one with plants(lose power relative to doc_dat)
+#floating
+time_float_dat = subset(temp_doc_dat, `% floating cover` != "NA")
+time_co2_float = lm(pco2_res ~ `% floating cover`, data = time_float_dat)
+summary(time_co2_float)
+dredge(time_co2_float)
+
+#emergent(lose power relative to doc_dat)
+time_emerge_dat = subset(temp_doc_dat, `% emergent cover` != "NA")
+time_co2_emerge = lm(pco2_res ~ `% emergent cover`, data = time_emerge_dat)
+summary(time_co2_emerge)
+dredge(time_co2_emerge)
+
+time_submerge_dat = subset(temp_doc_dat, `% submerged cover` != "NA")
+time_co2_submerge = lm(pco2_res ~ `% submerged cover`, data = time_submerge_dat)
+summary(time_co2_submerge)
+dredge(time_co2_submerge)
+
+
+# repeat for CH4
+#will need to make several models
+temp_ch4_base = lm(pch4_res ~ (`Perimeter (m)`) + (`Max Depth (m)`) + (`DOC (mg/L)`) + pH + `Fish (Present/Absent)`, data = temp_doc_dat)
+summary(temp_ch4_base)
+dredge(temp_ch4_base)
+summary(lm(pch4_res ~ `Max Depth (m)`, data = temp_doc_dat))
+
+#try with chlorophyll
+temp_ch4_chla = lm(pch4_res ~ `Max Depth (m)` + `Chlorophyll a (ug/L)`, data = tem_chla_dat)
+summary(temp_ch4_chla)
+dredge(temp_ch4_chla)
+
+#floating
+time_ch4_float = lm(pch4_res ~ `Max Depth (m)` + `% floating cover`, data = time_float_dat)
+summary(time_ch4_float)
+dredge(time_ch4_float)
+
+#emergent
+time_ch4_emerge = lm(pch4_res ~ `Max Depth (m)` + `% emergent cover`, data = time_emerge_dat)
+summary(time_ch4_emerge)
+dredge(time_ch4_emerge)
+
+#submerged
+time_ch4_submerge = lm(pch4_res ~ `Max Depth (m)` + `% submerged cover`, data = time_submerge_dat)
+summary(time_ch4_submerge)
+dredge(time_ch4_submerge)
+
+best_time_ch4_submerge = lm(pch4_res ~ (`Max Depth (m)`) + `% submerged cover`, data = time_submerge_dat)
+summary(best_time_ch4_submerge)
+
+#and reset the NA options
+options(na.action = "na.omit")
+
+ch4_time_1 = lm(pch4_res ~ log10(`Max Depth (m)`) + pH + `% emergent cover`, data = temp_var_dat)
+summary(ch4_time_1)
+
+ch4_time_1 = lm(pch4_res ~ log10(`Max Depth (m)`) + `% submerged cover`, data = temp_var_dat)
+summary(ch4_time_1)
+```
+
+
