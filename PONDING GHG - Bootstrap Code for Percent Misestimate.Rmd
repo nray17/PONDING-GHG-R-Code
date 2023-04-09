@@ -1,0 +1,453 @@
+---
+title: "ponding boostrap test"
+output: html_document
+---
+
+get the data ready for analysis
+```{r}
+library(readxl)
+gas_dat <- read_excel("ponding_ghg_figshare.xlsx", 
+    sheet = "dissolved_gases", na = "NA")
+View(gas_dat)
+
+##negative gas concentrations --> force everything below zero to zero
+library(tidyr)
+library(dplyr)
+min(na.omit(gas_dat$pco2_uatm))   ## -146.87
+gas_dat = gas_dat %>% mutate(pco2_uatm = if_else(pco2_uatm < 0, 0, pco2_uatm))
+min(na.omit(gas_dat$pco2_uatm))
+min(na.omit(gas_dat$pch4_uatm))  ##40.99 -- no need to change anything
+
+#take the mean of the two center samples
+centerdata = subset(gas_dat, samp_loc_in_pond == "center")
+
+centerdata1 <- centerdata %>%
+  group_by(date, pond, samp_round) %>%
+  summarize(pco2_uatm = mean(pco2_uatm, na.rm = TRUE),
+            pch4_uatm = mean(pch4_uatm, na.rm = TRUE))
+head(centerdata1)
+
+#add in a coumn to identify center as location in pond
+centerdata1$samp_loc_in_pond = "center"
+
+#shrink down the other dataset for just the data needed:
+not_center = subset(gas_dat, samp_loc_in_pond != "center")
+
+new_gas_dat = rbind(centerdata1, not_center)
+
+#ok, so now need to squish things down by date
+new_gas_means = new_gas_dat %>%
+  group_by(date,pond, samp_round) %>%
+  summarize(pco2_mean = mean(pco2_uatm, na.rm = TRUE),
+            pch4_mean = mean(pch4_uatm, na.rm = TRUE))
+new_gas_means
+###looks good...
+```
+
+Make dataset for the temporal bootstraps:
+```{r}
+#start with the "new_gas_means"
+new_gas_means
+
+#make a "grand mean by pond" dataframe
+library(tidyr)
+library(dplyr)
+
+big_means <- new_gas_means %>%
+  group_by(pond) %>%
+  summarize(bigco2mean = mean(pco2_mean, na.rm = TRUE),
+            bigch4mean = mean(pch4_mean, na.rm = TRUE))
+
+temporal_dat = merge(new_gas_means, big_means, by = c("pond"))
+
+###need to remove Mud Pond -- only sampled twice...
+temporal_dat = subset(temporal_dat, pond != "Mud Pond")
+```
+
+Ok, run bootstrap for pco2 temporal
+```{r}
+###be sure to run the lines below through the end of the "loop" all together (highlight before running)
+sample_coef_intercept <- NULL
+sample_coef_x1 <- NULL
+
+library(dplyr)
+new_df <- temporal_dat %>% group_by(pond) %>% slice_sample(n=1)
+
+set.seed(2021)
+for (i in 1:1000) {
+  #Creating a resampled dataset from the sample data
+  sample_d = temporal_dat %>% group_by(pond) %>% slice_sample(n=1)
+  
+  #Running the regression on these data
+  model_bootstrap <- lm(pco2_mean ~ bigco2mean, data = sample_d)
+  
+  #Saving the coefficients
+  sample_coef_intercept <-
+    c(sample_coef_intercept, model_bootstrap$coefficients[1])
+  
+  sample_coef_x1 <-
+    c(sample_coef_x1, model_bootstrap$coefficients[2])
+}
+
+summary(model_bootstrap)
+
+#mean slope
+mean_m = mean(sample_coef_x1)
+#mean intercept
+mean_int = mean(sample_coef_intercept)
+
+mean_m
+mean_int
+
+#95% confidence intervals
+a <-
+  cbind(
+    quantile(sample_coef_intercept, prob = 0.025),
+    quantile(sample_coef_intercept, prob = 0.975))
+b <-
+  cbind(quantile(sample_coef_x1, prob = 0.025),
+        quantile(sample_coef_x1, prob = 0.975))
+a  #95% CI for the intercept
+b  #95% CI for the slope
+
+###now just find the max and min for the slope (or basically 100% CI)
+c <-
+  cbind(quantile(sample_coef_x1, prob = 0),
+        quantile(sample_coef_x1, prob = 1))
+c
+```
+
+
+Repeat for pCH4 over time
+```{r}
+###be sure to run the lines below through the end of the "loop" all together (highlight before running)
+sample_coef_intercept <- NULL
+sample_coef_x1 <- NULL
+
+set.seed(2021)
+for (i in 1:1000) {
+  #Creating a resampled dataset from the sample data
+  sample_d = temporal_dat %>% group_by(pond) %>% slice_sample(n=1)
+  
+  #Running the regression on these data
+  model_bootstrap <- lm(pch4_mean ~ bigch4mean, data = sample_d)
+  
+  #Saving the coefficients
+  sample_coef_intercept <-
+    c(sample_coef_intercept, model_bootstrap$coefficients[1])
+  
+  sample_coef_x1 <-
+    c(sample_coef_x1, model_bootstrap$coefficients[2])
+}
+
+summary(model_bootstrap)
+
+#mean slope
+mean_m = mean(sample_coef_x1)
+#mean intercept
+mean_int = mean(sample_coef_intercept)
+
+mean_m
+mean_int
+
+#95% confidence intervals
+a <-
+  cbind(
+    quantile(sample_coef_intercept, prob = 0.025),
+    quantile(sample_coef_intercept, prob = 0.975))
+b <-
+  cbind(quantile(sample_coef_x1, prob = 0.025),
+        quantile(sample_coef_x1, prob = 0.975))
+a
+b
+
+###now just find the max and min for the slope (or basically 100% CI)
+c <-
+  cbind(quantile(sample_coef_x1, prob = 0),
+        quantile(sample_coef_x1, prob = 1))
+c
+```
+
+
+
+Make the spatial variance dataset
+```{r}
+#need to match up samples with mean on given date (so replicate new_gas_means three x and add center, and two non-center all in as one column...)
+#center data already exists as "centerdata1"
+#repeat for "out1 and out2"
+out1dat = subset(gas_dat, samp_loc_in_pond == "out1")
+out2dat = subset(gas_dat, samp_loc_in_pond == "out2")
+
+out1dat$samp_loc_in_pond = "out1"
+
+outdata1 <- out1dat %>%
+  group_by(date, pond, samp_round, samp_loc_in_pond) %>%
+  summarize(pco2_uatm = mean(pco2_uatm, na.rm = TRUE),
+            pch4_uatm = mean(pch4_uatm, na.rm = TRUE))
+head(outdata1)
+
+out2dat$samp_loc_in_pond = "out2"
+
+outdata2 <- out2dat %>%
+  group_by(date, pond, samp_round, samp_loc_in_pond) %>%
+  summarize(pco2_uatm = mean(pco2_uatm, na.rm = TRUE),
+            pch4_uatm = mean(pch4_uatm, na.rm = TRUE))
+head(outdata2)
+
+center_space_dat = merge(centerdata1, new_gas_means, by = c ("pond", "date", "samp_round"))
+out1_space_dat = merge(outdata1, new_gas_means, by = c ("pond", "date", "samp_round"))
+out2_space_dat = merge(outdata2, new_gas_means, by = c ("pond", "date", "samp_round"))
+
+spatial_dataset = rbind(center_space_dat, out1_space_dat, out2_space_dat)
+#since no means on a given day at a given pond are the same, this setup should work...
+
+##ok, now remove Mud Pond and Gibson Pond (only sampled from pond center)
+spatial_dataset = subset(spatial_dataset, pond != "Gibson Pond")
+spatial_dataset = subset(spatial_dataset, pond != "Mud Pond")
+```
+
+
+Try this approach for spatial CO2 first (based off of: https://towardsdatascience.com/bootstrap-regression-in-r-98bfe4ff5007)
+```{r}
+library(lme4)
+library(lmerTest)
+library(sjstats)
+library(fitdistrplus)
+
+###check distributions of mean pCO2 and all the individual pco2 samples
+x = as.vector(na.omit(spatial_dataset$pco2_uatm + 1))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+#normal for individual samples
+
+max(spatial_dataset$pco2_uatm)
+min(spatial_dataset$pco2_uatm)
+
+x = as.vector(na.omit(spatial_dataset$pco2_mean + 1))
+fit.lnorm.o2 = fitdist(x, "lnorm", method="mme")
+fit.norm.o2 = fitdist(x, "norm", method="mme")
+c(fit.norm.o2$aic, fit.lnorm.o2$aic)
+#also normal...
+
+max(spatial_dataset$pco2_mean)
+min(spatial_dataset$pco2_mean)
+
+
+#be sure to run the lines below through "summary(model_bootstrap)" all together
+sample_coef_intercept <- NULL
+sample_coef_x1 <- NULL
+
+set.seed(2021)
+for (i in 1:1000) {
+  #Creating a resampled dataset from the sample data
+  sample_d = spatial_dataset %>% group_by(pond,samp_round) %>% slice_sample(n=1)#spatial_dataset[sample(1:nrow(spatial_dataset), nrow(spatial_dataset), replace = TRUE), ]
+  
+  #Running the regression on these data
+  #model_bootstrap <- lmer(pco2_uatm ~ pco2_mean + (1|pond), data = sample_d)
+  model_bootstrap = lm(pco2_uatm ~ pco2_mean, data = sample_d)
+  
+  #Saving the coefficients
+  #sample_coef_intercept <- c(sample_coef_intercept, model_bootstrap@beta[1])
+  #sample_coef_x1 <- c(sample_coef_x1, model_bootstrap@beta[2])
+  sample_coef_intercept <- c(sample_coef_intercept, model_bootstrap$coefficients[1])
+  sample_coef_x1 <- c(sample_coef_x1, model_bootstrap$coefficients[2])
+}
+
+summary(model_bootstrap)
+r2(model_bootstrap)
+
+#mean slope
+mean_m = mean(sample_coef_x1)
+#mean intercept
+mean_int = mean(sample_coef_intercept)
+mean_m
+mean_int
+
+#confidence intervals
+a <-
+  cbind(
+    quantile(sample_coef_intercept, prob = 0.025),
+    quantile(sample_coef_intercept, prob = 0.975))
+b <-
+  cbind(quantile(sample_coef_x1, prob = 0.025),
+        quantile(sample_coef_x1, prob = 0.975))
+a
+b ###these two values are the low and high slopes within the 95% confidence interval
+
+c <-
+  cbind(quantile(sample_coef_x1, prob = 0),
+        quantile(sample_coef_x1, prob = 1))
+c
+```
+
+
+
+And for spatial ch4
+```{r}
+sample_coef_intercept <- NULL
+sample_coef_x1 <- NULL
+
+set.seed(2021)
+for (i in 1:1000) {
+  #Creating a resampled dataset from the sample data
+  sample_d = spatial_dataset %>% group_by(pond,samp_round) %>% slice_sample(n=1)#spatial_dataset[sample(1:nrow(spatial_dataset), nrow(spatial_dataset), replace = TRUE), ]
+  
+  #Running the regression on these data
+  #model_bootstrap <- lmer(pco2_uatm ~ pco2_mean + (1|pond), data = sample_d)
+  model_bootstrap = lm(pch4_uatm ~ pch4_mean, data = sample_d)
+  
+  #Saving the coefficients
+  #sample_coef_intercept <- c(sample_coef_intercept, model_bootstrap@beta[1])
+  #sample_coef_x1 <- c(sample_coef_x1, model_bootstrap@beta[2])
+  sample_coef_intercept <- c(sample_coef_intercept, model_bootstrap$coefficients[1])
+  sample_coef_x1 <- c(sample_coef_x1, model_bootstrap$coefficients[2])
+}
+
+summary(model_bootstrap)
+r2(model_bootstrap)
+
+#mean slope
+mean_m = mean(sample_coef_x1)
+#mean intercept
+mean_int = mean(sample_coef_intercept)
+mean_m
+mean_int
+
+#confidence intervals
+a <-
+  cbind(
+    quantile(sample_coef_intercept, prob = 0.025),
+    quantile(sample_coef_intercept, prob = 0.975))
+b <-
+  cbind(quantile(sample_coef_x1, prob = 0.025),
+        quantile(sample_coef_x1, prob = 0.975))
+a
+b ###these two values are the low and high slopes within the 95% confidence interval
+
+c <-
+  cbind(quantile(sample_coef_x1, prob = 0),
+        quantile(sample_coef_x1, prob = 1))
+c
+```
+
+
+
+
+Repeat for pCH4 over space and time (what happens if you grab a single sample all summer)
+Make the dataset first
+```{r}
+#use big mean from temporal dataset
+temporal_dat$bigch4mean
+temporal_dat$bigco2mean
+
+library(dplyr)
+
+space_time_means = spatial_dataset %>%
+  group_by(pond) %>%
+  summarize(bigco2mean = mean(pco2_mean, na.rm = TRUE),
+            bigch4mean = mean(pch4_mean, na.rm = TRUE))
+
+space_time = merge(spatial_dataset, space_time_means, by = c("pond"))
+```
+
+Run it for CH4
+```{r}
+###be sure to run the lines below through the end of the "loop" all together (highlight before running, or run the whole chunk)
+sample_coef_intercept <- NULL
+sample_coef_x1 <- NULL
+
+####need to change to the "Big Mean" and not just each individual date mean
+
+set.seed(2021)
+for (i in 1:1000) {
+  #Creating a resampled dataset from the sample data
+  sample_d = space_time %>% group_by(pond) %>% slice_sample(n=1)
+  
+  #Running the regression on these data
+  model_bootstrap <- lm(pch4_uatm ~ bigch4mean, data = sample_d)
+  
+  #Saving the coefficients
+  sample_coef_intercept <-
+    c(sample_coef_intercept, model_bootstrap$coefficients[1])
+  
+  sample_coef_x1 <-
+    c(sample_coef_x1, model_bootstrap$coefficients[2])
+}
+
+summary(model_bootstrap)
+
+#mean slope
+mean_m = mean(sample_coef_x1)
+#mean intercept
+mean_int = mean(sample_coef_intercept)
+mean_m
+mean_int
+
+#95% confidence intervals
+a <-
+  cbind(
+    quantile(sample_coef_intercept, prob = 0.025),
+    quantile(sample_coef_intercept, prob = 0.975))
+b <-
+  cbind(quantile(sample_coef_x1, prob = 0.025),
+        quantile(sample_coef_x1, prob = 0.975))
+a
+b
+
+###now just find the max and min for the slope (or basically 100% CI)
+c <-
+  cbind(quantile(sample_coef_x1, prob = 0),
+        quantile(sample_coef_x1, prob = 1))
+c
+```
+
+and for pCO2
+```{r}
+###be sure to run the lines below through the end of the "loop" all together (highlight before running)
+sample_coef_intercept <- NULL
+sample_coef_x1 <- NULL
+
+set.seed(2021)
+for (i in 1:1000) {
+  #Creating a resampled dataset from the sample data
+   sample_d = space_time %>% group_by(pond) %>% slice_sample(n=1)
+  
+  #Running the regression on these data
+  model_bootstrap <- lm(pco2_uatm ~ bigco2mean, data = sample_d)
+  
+  #Saving the coefficients
+  sample_coef_intercept <-
+    c(sample_coef_intercept, model_bootstrap$coefficients[1])
+  
+  sample_coef_x1 <-
+    c(sample_coef_x1, model_bootstrap$coefficients[2])
+}
+
+summary(model_bootstrap)
+
+#mean slope
+mean_m = mean(sample_coef_x1)
+#mean intercept
+mean_int = mean(sample_coef_intercept)
+mean_m
+mean_int
+
+#95% confidence intervals
+a <-
+  cbind(
+    quantile(sample_coef_intercept, prob = 0.025),
+    quantile(sample_coef_intercept, prob = 0.975))
+b <-
+  cbind(quantile(sample_coef_x1, prob = 0.025),
+        quantile(sample_coef_x1, prob = 0.975))
+a
+b
+
+###now just find the max and min for the slope (or basically 100% CI)
+c <-
+  cbind(quantile(sample_coef_x1, prob = 0),
+        quantile(sample_coef_x1, prob = 1))
+c
+```
+
